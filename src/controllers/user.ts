@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import User from "../infrastructure/schemas/user";
+import User from "../models/user";
 
 export const addUser = async(req: Request, res: Response) => {
     const answer = req.body;
