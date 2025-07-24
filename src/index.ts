@@ -12,8 +12,9 @@ app.use(cors());
 
 connectDB();
 
-app.use('/user', userRouter);
+
 app.use('/auth', signUpRouter);
 app.use('/login', loginRouter);
+
 
 app.listen(8000, () => console.log("Server is listening on port 8000."));

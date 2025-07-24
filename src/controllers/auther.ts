@@ -12,7 +12,7 @@ function createToken(userId: ObjectId, name: String) {
 
 export async function addUser(req: Request, res: Response) {
   const { name, email, password } = req.body;
-
+console.log("Received body from frontend:", req.body);
   try {
     const checkExisitingUser = await User.findOne({ email });
 
@@ -34,7 +34,7 @@ export async function addUser(req: Request, res: Response) {
     console.error("Register Error", err);
     res.status(400).send("User not created");
   }
-  return res.status(201).send();
+  // return res.status(201).send();
 }
 
 export async function userLogin(req: Request, res: Response) {
@@ -53,7 +53,7 @@ export async function userLogin(req: Request, res: Response) {
 
     if (!isValidpassword) {
       return res.status(401).json({
-        error: "Invalid password or password",
+        error: "Invalid email or password",
       });
     }
 
