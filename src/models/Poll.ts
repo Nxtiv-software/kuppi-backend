@@ -8,7 +8,7 @@ export interface IPoll extends Document {
   preferredDate: Date;
   timeSlot: 'morning' | 'afternoon' | 'evening';
   maxStudents: number;
-  creator: mongoose.Types.ObjectId;
+  creator: mongoose.Types.ObjectId | string; // Allow both ObjectId and string
   votes: mongoose.Types.ObjectId[];
   status: 'active' | 'completed' | 'scheduled';
   targetVotes: number;
@@ -17,7 +17,14 @@ export interface IPoll extends Document {
   createdAt: Date;
   updatedAt: Date;
   checkScheduling: () => boolean;
-  getTrendingPolls: () => Promise<IPoll[]>;
+  // Additional fields for flexible user handling
+  createdBy?: string; // Optional string field for non-ObjectId user IDs
+  creatorName?: string; // Optional creator name field
+}
+
+// Interface for static methods
+export interface IPollModel extends mongoose.Model<IPoll> {
+  getTrendingPolls(): Promise<IPoll[]>;
 }
 
 const PollSchema: Schema = new Schema({
@@ -30,7 +37,7 @@ const PollSchema: Schema = new Schema({
   subject: {
     type: String,
     required: true,
-    enum: ['data-structures', 'algorithms', 'database', 'web-dev', 'mobile-dev']
+    enum: ['combined-maths', 'physics', 'chemistry']
   },
   chapter: {
     type: String,
@@ -60,9 +67,17 @@ const PollSchema: Schema = new Schema({
     max: 50
   },
   creator: {
-    type: Schema.Types.ObjectId,
-    ref: 'User',
+    type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String
     required: true
+  },
+  // Additional fields for flexible user handling
+  createdBy: {
+    type: String,
+    required: false // Optional string field for non-ObjectId user IDs
+  },
+  creatorName: {
+    type: String,
+    required: false // Optional creator name field
   },
   votes: [{
     type: Schema.Types.ObjectId,
@@ -119,18 +134,42 @@ PollSchema.statics.getTrendingPolls = function(this: mongoose.Model<IPoll>) {
     {
       $lookup: {
         from: 'users',
-        localField: 'creator',
-        foreignField: '_id',
-        as: 'creator',
-        pipeline: [{ $project: { name: 1, email: 1 } }]
+        let: { creatorId: '$creator' },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $cond: {
+                  if: { $eq: [{ $type: '$$creatorId' }, 'objectId'] },
+                  then: { $eq: ['$_id', '$$creatorId'] },
+                  else: { $eq: ['$_id', { $toObjectId: '$$creatorId' }] }
+                }
+              }
+            }
+          },
+          { $project: { name: 1, email: 1 } }
+        ],
+        as: 'creatorInfo'
       }
     },
     {
-      $unwind: '$creator'
+      $addFields: {
+        voteCount: { $size: '$votes' },
+        creator: {
+          $cond: {
+            if: { $gt: [{ $size: '$creatorInfo' }, 0] },
+            then: { $arrayElemAt: ['$creatorInfo', 0] },
+            else: {
+              name: { $ifNull: ['$creatorName', 'Unknown User'] },
+              _id: '$creator'
+            }
+          }
+        }
+      }
     },
     {
-      $addFields: {
-        voteCount: { $size: '$votes' }
+      $project: {
+        creatorInfo: 0 // Remove the temporary field
       }
     },
     {
@@ -143,4 +182,4 @@ PollSchema.statics.getTrendingPolls = function(this: mongoose.Model<IPoll>) {
 };
 
   
-export default mongoose.model<IPoll>('Poll', PollSchema);
+export default mongoose.model<IPoll, IPollModel>('Poll', PollSchema);
