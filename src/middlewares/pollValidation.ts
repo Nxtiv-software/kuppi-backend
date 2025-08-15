@@ -9,7 +9,7 @@ export const validateCreatePoll = [
     .withMessage('Title must be between 5 and 200 characters'),
   
   body('subject')
-    .isIn(['data-structures', 'algorithms', 'database', 'web-dev', 'mobile-dev'])
+    .isIn(['combined-maths', 'physics', 'chemistry'])
     .withMessage('Invalid subject selected'),
   
   body('chapter')
@@ -54,7 +54,7 @@ export const validatePollId = [
 export const validatePollFilters = [
   query('subject')
     .optional()
-    .isIn(['all', 'data-structures', 'algorithms', 'database', 'web-dev', 'mobile-dev'])
+    .isIn(['all', 'combined-maths', 'physics', 'chemistry'])
     .withMessage('Invalid subject filter'),
   
   query('status')
@@ -86,9 +86,9 @@ export const validateSearch = [
   
   query('subject')
     .optional()
-    .isIn(['all', 'data-structures', 'algorithms', 'database', 'web-dev', 'mobile-dev'])
+    .isIn(['all', 'combined-maths', 'physics', 'chemistry'])
     .withMessage('Invalid subject filter'),
-  
+
   query('status')
     .optional()
     .isIn(['all', 'active', 'completed', 'scheduled'])
@@ -123,7 +123,8 @@ export const handleValidationErrors = (
   if (!errors.isEmpty()) {
     return res.status(400).json({
       success: false,
-     errors: errors.array().map((error: any) => ({
+      message: 'Validation failed',
+      errors: errors.array().map((error: any) => ({
         field: error.param,
         message: error.msg,
         value: error.value || null
@@ -171,6 +172,9 @@ export const validateVoteOperation = [
 // Custom middleware to check if user can vote on poll
 export const canUserVote = async (req: any, res: Response, next: NextFunction) => {
   try {
+    // FOR LOCALHOST TESTING: Skip vote validation
+    // Uncomment when deploying with authentication
+    /*
     const poll = req.poll;
     const userId = req.user.id;
     
@@ -188,6 +192,7 @@ export const canUserVote = async (req: any, res: Response, next: NextFunction) =
         message: 'You have already voted on this poll'
       });
     }
+    */
     
     next();
     
@@ -203,6 +208,9 @@ export const canUserVote = async (req: any, res: Response, next: NextFunction) =
 // Custom middleware to check if user can remove vote
 export const canUserRemoveVote = async (req: any, res: Response, next: NextFunction) => {
   try {
+    // FOR LOCALHOST TESTING: Skip vote removal validation
+    // Uncomment when deploying with authentication
+    /*
     const poll = req.poll;
     const userId = req.user.id;
     
@@ -220,6 +228,7 @@ export const canUserRemoveVote = async (req: any, res: Response, next: NextFunct
         message: 'You have not voted on this poll'
       });
     }
+    */
     
     next();
     
@@ -227,6 +236,61 @@ export const canUserRemoveVote = async (req: any, res: Response, next: NextFunct
     return res.status(500).json({
       success: false,
       message: 'Error checking vote removal eligibility',
+      error: error.message
+    });
+  }
+};
+
+// Custom middleware to check if user is poll creator
+export const isPollCreator = async (req: any, res: Response, next: NextFunction) => {
+  try {
+    // FOR LOCALHOST TESTING: Skip creator validation
+    // Uncomment when deploying with authentication
+    /*
+    const poll = req.poll;
+    const userId = req.user.id;
+    
+    if (poll.creator.toString() !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to perform this action on this poll'
+      });
+    }
+    */
+    
+    next();
+    
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error checking poll ownership',
+      error: error.message
+    });
+  }
+};
+
+// Custom middleware to check if user is admin or tutor
+export const isAdminOrTutor = async (req: any, res: Response, next: NextFunction) => {
+  try {
+    // FOR LOCALHOST TESTING: Skip role validation
+    // Uncomment when deploying with authentication
+    /*
+    const user = req.user;
+    
+    if (!user.role || !['admin', 'tutor'].includes(user.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to perform this action'
+      });
+    }
+    */
+    
+    next();
+    
+  } catch (error: any) {
+    return res.status(500).json({
+      success: false,
+      message: 'Error checking user role',
       error: error.message
     });
   }
