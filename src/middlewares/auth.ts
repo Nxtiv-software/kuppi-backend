@@ -27,6 +27,22 @@ async function authenticateUser(
   next: NextFunction
 ) {
   try {
+    // FOR LOCALHOST TESTING: Skip authentication and use mock user
+    // Comment out this block when deploying with authentication
+    const mockUser = {
+      _id: '507f1f77bcf86cd799439011', // Valid ObjectId format
+      id: '507f1f77bcf86cd799439011',
+      name: 'Test User',
+      email: 'test@example.com',
+      password: 'hashed-password'
+    };
+    (req as any).user = mockUser;
+    console.log("Skipping authentication for localhost testing");
+    next();
+    return;
+    
+    // AUTHENTICATION: Uncomment below code when deploying with authentication
+    /*
     const authHeader = req.header("Authorization");
 
     if (!authHeader || !authHeader.startsWith("Bearer")) {
@@ -92,6 +108,7 @@ async function authenticateUser(
         });
       }
     }
+    */
   } catch (error) {
     console.error("Auth middleware error:", error);
     return res.status(500).json({ 
