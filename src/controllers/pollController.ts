@@ -356,11 +356,11 @@ export class PollController {
         return;
       }
 
-      // Don't allow deletion if poll is scheduled or has votes
-      if (poll.status === 'scheduled' || poll.votes.length > 0) {
+      // Don't allow deletion if poll is scheduled or has more than 3 votes
+      if (poll.status === 'scheduled' || poll.votes.length > 3) {
         res.status(400).json({
           success: false,
-          message: 'Cannot delete poll that has votes or is scheduled'
+          message: 'Cannot delete poll that is scheduled or has more than 3 votes'
         });
         return;
       }
