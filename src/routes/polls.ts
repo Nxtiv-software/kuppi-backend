@@ -17,8 +17,16 @@ import authenticateUser from '../middlewares/auth';
 
 const router = express.Router();
 
-// Apply authentication middleware to all routes
-router.use(authenticateUser);
+// AUTHENTICATION: Apply authentication middleware to all routes
+// Uncomment when deploying with authentication
+// router.use(authenticateUser);
+
+// FOR LOCALHOST TESTING: Skip authentication middleware
+// Comment out this line when deploying
+router.use((req, res, next) => {
+  console.log('Skipping authentication for localhost testing');
+  next();
+});
 
 // @route   POST /api/polls
 // @desc    Create a new poll
@@ -28,40 +36,30 @@ router.post('/',
   handleValidationErrors,
   async (req: Request, res: Response) => {
     try {
-      const {
-        title,
-        subject,
-        chapter,
-        description,
-        preferredDate,
-        timeSlot,
-        maxStudents
-      } = req.body;
+      // AUTHENTICATION: When deploying, uncomment this check
+      /*
+      if (!req.user) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication required to create polls'
+        });
+      }
+      */
 
-      const Poll = require('../models/Poll').default;
-      
-      const newPoll = new Poll({
-        title,
-        subject,
-        chapter,
-        description,
-        preferredDate: new Date(preferredDate),
-        timeSlot,
-        maxStudents: parseInt(maxStudents.toString()),
-        creator: (req as any).user.id
-      });
+      // FOR LOCALHOST TESTING: Mock user in request
+      if (!(req as any).user) {
+        (req as any).user = {
+          _id: 'test-user-123',
+          id: 'test-user-123',
+          name: 'Test User',
+          email: 'test@example.com'
+        };
+      }
 
-      const savedPoll = await newPoll.save();
-      await savedPoll.populate('creator', 'name email');
-
-      res.status(201).json({
-        success: true,
-        message: 'Poll created successfully',
-        data: savedPoll
-      });
+      await PollController.createPoll(req as AuthRequest, res);
 
     } catch (error: any) {
-      console.error('Error creating poll:', error);
+      console.error('Error in create poll route:', error);
       res.status(500).json({
         success: false,
         message: 'Server error while creating poll',
@@ -79,74 +77,20 @@ router.get('/',
   handleValidationErrors,
   async (req: Request, res: Response) => {
     try {
-      const { subject, status, date, page = 1, limit = 10 } = req.query;
-      const Poll = require('../models/Poll').default;
-      
-      let query: any = {};
-      
-      if (subject && subject !== 'all') {
-        query.subject = subject;
-      }
-      
-      if (status && status !== 'all') {
-        query.status = status;
-      }
-      
-      if (date && date !== 'all') {
-        const now = new Date();
-        switch (date) {
-          case 'today':
-            query.createdAt = {
-              $gte: new Date(now.getFullYear(), now.getMonth(), now.getDate()),
-              $lt: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
-            };
-            break;
-          case 'week':
-            const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-            query.createdAt = { $gte: weekAgo };
-            break;
-          case 'month':
-            const monthAgo = new Date(now.getFullYear(), now.getMonth(), 1);
-            query.createdAt = { $gte: monthAgo };
-            break;
-        }
-      }
-
-      const pageNum = parseInt(page.toString());
-      const limitNum = parseInt(limit.toString());
-      const skip = (pageNum - 1) * limitNum;
-
-      const polls = await Poll.find(query)
-        .populate('creator', 'name email')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limitNum);
-
-      const total = await Poll.countDocuments(query);
-
-      const pollsWithUserData = polls.map((poll: any) => {
-        const hasVoted = poll.votes.includes((req as any).user.id);
-        return {
-          ...poll.toObject(),
-          voteCount: poll.votes.length,
-          hasVoted
+      // FOR LOCALHOST TESTING: Mock user in request
+      if (!(req as any).user) {
+        (req as any).user = {
+          _id: 'test-user-123',
+          id: 'test-user-123',
+          name: 'Test User',
+          email: 'test@example.com'
         };
-      });
+      }
 
-      res.json({
-        success: true,
-        data: {
-          polls: pollsWithUserData,
-          pagination: {
-            current: pageNum,
-            pages: Math.ceil(total / limitNum),
-            total
-          }
-        }
-      });
+      await PollController.getAllPolls(req as AuthRequest, res);
 
     } catch (error: any) {
-      console.error('Error fetching polls:', error);
+      console.error('Error in get polls route:', error);
       res.status(500).json({
         success: false,
         message: 'Server error while fetching polls',
@@ -162,20 +106,52 @@ router.get('/',
 router.get('/trending', 
   async (req: Request, res: Response) => {
     try {
-      const Poll = require('../models/Poll').default;
-      const trendingPolls = await Poll.getTrendingPolls()
-        .populate('creator', 'name email');
+      // FOR LOCALHOST TESTING: Mock user in request
+      if (!(req as any).user) {
+        (req as any).user = {
+          _id: '507f1f77bcf86cd799439011', // Valid ObjectId format
+          id: '507f1f77bcf86cd799439011',
+          name: 'Test User',
+          email: 'test@example.com'
+        };
+      }
 
-      res.json({
-        success: true,
-        data: trendingPolls
-      });
+      await PollController.getTrendingPolls(req as AuthRequest, res);
 
     } catch (error: any) {
-      console.error('Error fetching trending polls:', error);
+      console.error('Error in get trending polls route:', error);
       res.status(500).json({
         success: false,
         message: 'Server error while fetching trending polls',
+        error: error.message
+      });
+    }
+  }
+);
+
+// @route   GET /api/polls/stats
+// @desc    Get poll statistics for dashboard
+// @access  Private
+router.get('/stats', 
+  async (req: Request, res: Response) => {
+    try {
+      // FOR LOCALHOST TESTING: Mock user in request
+      if (!(req as any).user) {
+        (req as any).user = {
+          _id: 'test-user-123',
+          id: 'test-user-123',
+          name: 'Test User',
+          email: 'test@example.com'
+        };
+      }
+
+      await PollController.getPollStats(req as AuthRequest, res);
+
+    } catch (error: any) {
+      console.error('Error in get poll stats route:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error while fetching poll statistics',
         error: error.message
       });
     }
@@ -188,9 +164,32 @@ router.get('/trending',
 router.post('/:id/vote', 
   validatePollId,
   handleValidationErrors,
-  validatePollAccess,
-  canUserVote,
-  (req: Request, res: Response) => PollController.voteOnPoll(req as AuthRequest, res)
+  // AUTHENTICATION: Uncomment when deploying with authentication
+  // validatePollAccess,
+  // canUserVote,
+  async (req: Request, res: Response) => {
+    try {
+      // FOR LOCALHOST TESTING: Mock user in request
+      if (!(req as any).user) {
+        (req as any).user = {
+          _id: '507f1f77bcf86cd799439011', // Valid ObjectId format
+          id: '507f1f77bcf86cd799439011',
+          name: 'Test User',
+          email: 'test@example.com'
+        };
+      }
+
+      await PollController.voteOnPoll(req as AuthRequest, res);
+
+    } catch (error: any) {
+      console.error('Error in vote on poll route:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error while voting on poll',
+        error: error.message
+      });
+    }
+  }
 );
 
 // @route   DELETE /api/polls/:id/vote
@@ -199,9 +198,32 @@ router.post('/:id/vote',
 router.delete('/:id/vote', 
   validatePollId,
   handleValidationErrors,
-  validatePollAccess,
-  canUserRemoveVote,
-  (req: Request, res: Response) => PollController.removeVote(req as AuthRequest, res)
+  // AUTHENTICATION: Uncomment when deploying with authentication
+  // validatePollAccess,
+  // canUserRemoveVote,
+  async (req: Request, res: Response) => {
+    try {
+      // FOR LOCALHOST TESTING: Mock user in request
+      if (!(req as any).user) {
+        (req as any).user = {
+          _id: '507f1f77bcf86cd799439011', // Valid ObjectId format
+          id: '507f1f77bcf86cd799439011',
+          name: 'Test User',
+          email: 'test@example.com'
+        };
+      }
+
+      await PollController.removeVote(req as AuthRequest, res);
+
+    } catch (error: any) {
+      console.error('Error in remove vote route:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error while removing vote',
+        error: error.message
+      });
+    }
+  }
 );
 
 // @route   GET /api/polls/:id
@@ -212,34 +234,20 @@ router.get('/:id',
   handleValidationErrors,
   async (req: Request, res: Response) => {
     try {
-      const Poll = require('../models/Poll').default;
-      const pollId = req.params.id;
-
-      const poll = await Poll.findById(pollId)
-        .populate('creator', 'name email')
-        .populate('tutor', 'name email')
-        .populate('votes', 'name email');
-
-      if (!poll) {
-        return res.status(404).json({
-          success: false,
-          message: 'Poll not found'
-        });
+      // FOR LOCALHOST TESTING: Mock user in request
+      if (!(req as any).user) {
+        (req as any).user = {
+          _id: 'test-user-123',
+          id: 'test-user-123',
+          name: 'Test User',
+          email: 'test@example.com'
+        };
       }
 
-      const hasVoted = poll.votes.some((vote: any) => vote._id.toString() === (req as any).user.id);
-
-      res.json({
-        success: true,
-        data: {
-          ...poll.toObject(),
-          voteCount: poll.votes.length,
-          hasVoted
-        }
-      });
+      await PollController.getPollById(req as AuthRequest, res);
 
     } catch (error: any) {
-      console.error('Error fetching poll:', error);
+      console.error('Error in get poll by ID route:', error);
       res.status(500).json({
         success: false,
         message: 'Server error while fetching poll',
@@ -255,7 +263,29 @@ router.get('/:id',
 router.put('/:id/status', 
   validateUpdatePollStatus,
   handleValidationErrors,
-  (req: Request, res: Response) => PollController.updatePollStatus(req as AuthRequest, res)
+  async (req: Request, res: Response) => {
+    try {
+      // FOR LOCALHOST TESTING: Mock user in request
+      if (!(req as any).user) {
+        (req as any).user = {
+          _id: 'test-user-123',
+          id: 'test-user-123',
+          name: 'Test User',
+          email: 'test@example.com'
+        };
+      }
+
+      await PollController.updatePollStatus(req as AuthRequest, res);
+
+    } catch (error: any) {
+      console.error('Error in update poll status route:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error while updating poll status',
+        error: error.message
+      });
+    }
+  }
 );
 
 // @route   DELETE /api/polls/:id
@@ -264,12 +294,58 @@ router.put('/:id/status',
 router.delete('/:id', 
   validatePollId,
   handleValidationErrors,
-  (req: Request, res: Response) => PollController.deletePoll(req as AuthRequest, res)
+  async (req: Request, res: Response) => {
+    try {
+      // FOR LOCALHOST TESTING: Mock user in request
+      if (!(req as any).user) {
+        (req as any).user = {
+          _id: 'test-user-123',
+          id: 'test-user-123',
+          name: 'Test User',
+          email: 'test@example.com'
+        };
+      }
+
+      await PollController.deletePoll(req as AuthRequest, res);
+
+    } catch (error: any) {
+      console.error('Error in delete poll route:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error while deleting poll',
+        error: error.message
+      });
+    }
+  }
 );
 
 // @route   POST /api/polls/check-scheduling
 // @desc    Check and update polls that should be scheduled
 // @access  Private (Admin only)
-router.post('/check-scheduling', (req: Request, res: Response) => PollController.checkSchedulingEligibility(req as AuthRequest, res));
+router.post('/check-scheduling', 
+  async (req: Request, res: Response) => {
+    try {
+      // FOR LOCALHOST TESTING: Mock user in request
+      if (!(req as any).user) {
+        (req as any).user = {
+          _id: 'test-user-123',
+          id: 'test-user-123',
+          name: 'Test User',
+          email: 'test@example.com'
+        };
+      }
+
+      await PollController.checkSchedulingEligibility(req as AuthRequest, res);
+
+    } catch (error: any) {
+      console.error('Error in check scheduling route:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Server error while checking scheduling eligibility',
+        error: error.message
+      });
+    }
+  }
+);
 
 export default router;
