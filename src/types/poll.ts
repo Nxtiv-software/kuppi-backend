@@ -2,7 +2,7 @@
 
 export interface CreatePollRequest {
   title: string;
-  subject: 'data-structures' | 'algorithms' | 'database' | 'web-dev' | 'mobile-dev';
+  subject: 'combined-maths' | 'physics' | 'chemistry';
   chapter: string;
   description: string;
   preferredDate: string;
