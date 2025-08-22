@@ -348,24 +348,40 @@ export class PollController {
       }
 
       // Check if user is the creator of the poll
-      if (poll.creator.toString() !== userId) {
+      const isCreator = poll.creator.toString() === userId || 
+                       poll.creator === userId || 
+                       poll.createdBy === userId;
+      
+      if (!isCreator) {
         res.status(403).json({
           success: false,
-          message: 'You are not authorized to delete this poll'
+          message: 'You are not authorized to delete this poll. Only the poll creator can delete it.'
         });
         return;
       }
 
-      // Don't allow deletion if poll is scheduled or has more than 3 votes
-      if (poll.status === 'scheduled' || poll.votes.length > 3) {
+      console.log(`User ${userId} attempting to delete poll ${pollId} with ${poll.votes.length} votes`);
+
+      // Only allow deletion if poll has 3 votes or fewer and is not scheduled
+      if (poll.status === 'scheduled') {
         res.status(400).json({
           success: false,
-          message: 'Cannot delete poll that is scheduled or has more than 3 votes'
+          message: 'Cannot delete poll that is already scheduled'
+        });
+        return;
+      }
+
+      if (poll.votes.length > 3) {
+        res.status(400).json({
+          success: false,
+          message: `Cannot delete poll with ${poll.votes.length} votes. Polls can only be deleted if they have 3 votes or fewer.`
         });
         return;
       }
 
       await Poll.findByIdAndDelete(pollId);
+      
+      console.log(`Poll ${pollId} with ${poll.votes.length} votes successfully deleted by user ${userId}`);
 
       res.json({
         success: true,
@@ -468,10 +484,10 @@ export class PollController {
         return;
       }
 
-      if (parseInt(maxStudents.toString()) < 5 || parseInt(maxStudents.toString()) > 50) {
+      if (parseInt(maxStudents.toString()) < 1 || parseInt(maxStudents.toString()) > 50) {
         res.status(400).json({
           success: false,
-          message: 'Max students must be between 5 and 50'
+          message: 'Max students must be between 1 and 50'
         });
         return;
       }
