@@ -7,6 +7,7 @@ import signUpRouter from "./routes/signup";
 import loginRouter from "./routes/login";
 import router from "./routes/polls";
 import refreshRouter from "./routes/refreshToken";
+import sessionsRouter from "./routes/sessions";
 // import webHookrouter from "./routes/clerkWebhook"; // Commented out until implemented
 
 const app = express();
@@ -38,6 +39,7 @@ app.use('/auth', signUpRouter);
 app.use('/auth', refreshRouter);
 app.use('/login', loginRouter);
 app.use('/polls', router);
+app.use('/sessions', sessionsRouter);
 app.use('/api/user', userRouter);
 
 app.get('/health', (req: Request, res: Response) => {
@@ -58,6 +60,7 @@ app.get('/api', (req: Request, res: Response) => {
       auth: '/auth',
       login: '/login',
       polls: '/polls',
+      sessions: '/sessions',
       // clerk: '/clerk', // Commented out until implemented
       health: '/health'
     }
@@ -68,7 +71,7 @@ app.use('*', (req: Request, res: Response) => {
   res.status(404).json({
     success: false,
     message: `Route ${req.method} ${req.originalUrl} not found`,
-    availableRoutes: ['/auth', '/login', '/polls', '/health', '/api'] // Removed '/clerk'
+    availableRoutes: ['/auth', '/login', '/polls', '/sessions', '/health', '/api'] // Removed '/clerk'
   });
 });
 
@@ -99,6 +102,33 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 });
 
 const PORT = process.env.PORT || 8000;
-app.listen(PORT, () => {
+console.log('Starting server on port:', PORT);
+const server = app.listen(PORT, () => {
   console.log(`🚀 Server is running on port ${PORT}`);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
+process.on('SIGINT', () => {
+  console.log('Received SIGINT. Graceful shutdown...');
+  server.close(() => {
+    console.log('Server closed.');
+    process.exit(0);
+  });
+});
+
+process.on('SIGTERM', () => {
+  console.log('Received SIGTERM. Graceful shutdown...');
+  server.close(() => {
+    console.log('Server closed.');
+    process.exit(0);
+  });
 });
