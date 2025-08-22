@@ -10,10 +10,12 @@ export interface IPoll extends Document {
   maxStudents: number;
   creator: mongoose.Types.ObjectId | string; // Allow both ObjectId and string
   votes: mongoose.Types.ObjectId[];
-  status: 'active' | 'completed' | 'scheduled';
+  status: 'active' | 'completed' | 'scheduled' | 'accepted';
   targetVotes: number;
   scheduledDate?: Date;
   tutor?: mongoose.Types.ObjectId;
+  acceptedBy?: mongoose.Types.ObjectId | string; // Tutor who accepted the request - allow both types
+  sessionId?: mongoose.Types.ObjectId; // Reference to created session
   createdAt: Date;
   updatedAt: Date;
   checkScheduling: () => boolean;
@@ -63,7 +65,7 @@ const PollSchema: Schema = new Schema({
   maxStudents: {
     type: Number,
     required: true,
-    min: 5,
+    min: 1,
     max: 50
   },
   creator: {
@@ -85,12 +87,12 @@ const PollSchema: Schema = new Schema({
   }],
   status: {
     type: String,
-    enum: ['active', 'completed', 'scheduled'],
+    enum: ['active', 'completed', 'scheduled', 'accepted'],
     default: 'active'
   },
   targetVotes: {
     type: Number,
-    default: 7 // Updated to 7 votes for trending
+    default: 1 // Changed to 1 vote for easier testing (1 vote = 100%)
   },
   scheduledDate: {
     type: Date
@@ -98,6 +100,14 @@ const PollSchema: Schema = new Schema({
   tutor: {
     type: Schema.Types.ObjectId,
     ref: 'User'
+  },
+  acceptedBy: {
+    type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String
+    ref: 'User'
+  },
+  sessionId: {
+    type: Schema.Types.ObjectId,
+    ref: 'Session'
   }
 }, {
   timestamps: true
