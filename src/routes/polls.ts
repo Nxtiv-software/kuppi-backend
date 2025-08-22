@@ -289,7 +289,7 @@ router.put('/:id/status',
 );
 
 // @route   DELETE /api/polls/:id
-// @desc    Delete a poll (only creator can delete)
+// @desc    Delete a poll (only creator can delete, max 3 votes allowed)
 // @access  Private
 router.delete('/:id', 
   validatePollId,
