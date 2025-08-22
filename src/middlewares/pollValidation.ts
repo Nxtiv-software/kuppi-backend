@@ -39,8 +39,8 @@ export const validateCreatePoll = [
     .withMessage('Invalid time slot selected'),
   
   body('maxStudents')
-    .isInt({ min: 5, max: 50 })
-    .withMessage('Max students must be between 5 and 50'),
+    .isInt({ min: 1, max: 50 })
+    .withMessage('Max students must be between 1 and 50'),
 ];
 
 // Validation rules for poll ID parameter
