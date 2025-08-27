@@ -16,7 +16,7 @@ export interface ISession extends Document {
   duration: number; // in hours
   feePerStudent: number;
   maxStudents: number;
-  enrolledStudents: mongoose.Types.ObjectId[];
+  enrolledStudents: (mongoose.Types.ObjectId | string)[];
   status: 'upcoming' | 'completed' | 'cancelled';
   meetingLink?: string;
   materials?: string[];
@@ -95,10 +95,7 @@ const SessionSchema = new Schema<ISession>({
     required: true,
     min: 1
   },
-  enrolledStudents: [{
-    type: Schema.Types.ObjectId,
-    ref: 'User'
-  }],
+  enrolledStudents: [Schema.Types.Mixed], // Allow both ObjectId and String user IDs
   status: {
     type: String,
     enum: ['upcoming', 'completed', 'cancelled'],
