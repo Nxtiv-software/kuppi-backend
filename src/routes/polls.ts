@@ -13,20 +13,12 @@ import {
   canUserRemoveVote
 } from '../middlewares/pollValidation';
 import { AuthRequest } from '../middlewares/auth'; 
-import authenticateUser from '../middlewares/auth';
+import { requireAuth, AuthenticatedRequest } from '../middlewares/clerkAuth';
 
 const router = express.Router();
 
-// AUTHENTICATION: Apply authentication middleware to all routes
-// Uncomment when deploying with authentication
-// router.use(authenticateUser);
-
-// FOR LOCALHOST TESTING: Skip authentication middleware
-// Comment out this line when deploying
-router.use((req, res, next) => {
-  console.log('Skipping authentication for localhost testing');
-  next();
-});
+// Apply Clerk authentication to all routes
+router.use(requireAuth);
 
 // @route   POST /api/polls
 // @desc    Create a new poll
@@ -36,25 +28,14 @@ router.post('/',
   handleValidationErrors,
   async (req: Request, res: Response) => {
     try {
-      // AUTHENTICATION: When deploying, uncomment this check
-      /*
-      if (!req.user) {
-        return res.status(401).json({
-          success: false,
-          message: 'Authentication required to create polls'
-        });
-      }
-      */
-
-      // FOR LOCALHOST TESTING: Mock user in request
-      if (!(req as any).user) {
-        (req as any).user = {
-          _id: 'test-user-123',
-          id: 'test-user-123',
-          name: 'Test User',
-          email: 'test@example.com'
-        };
-      }
+      // Get user ID from Clerk authentication
+      const authReq = req as AuthenticatedRequest;
+      (req as any).user = {
+        _id: authReq.auth.userId,
+        id: authReq.auth.userId,
+        name: req.body.creatorName || 'Unknown User',
+        email: 'user@example.com' // You might want to get this from Clerk user data
+      };
 
       await PollController.createPoll(req as AuthRequest, res);
 
@@ -77,15 +58,14 @@ router.get('/',
   handleValidationErrors,
   async (req: Request, res: Response) => {
     try {
-      // FOR LOCALHOST TESTING: Mock user in request
-      if (!(req as any).user) {
-        (req as any).user = {
-          _id: 'test-user-123',
-          id: 'test-user-123',
-          name: 'Test User',
-          email: 'test@example.com'
-        };
-      }
+      // Get user ID from Clerk authentication
+      const authReq = req as AuthenticatedRequest;
+      (req as any).user = {
+        _id: authReq.auth.userId,
+        id: authReq.auth.userId,
+        name: 'User',
+        email: 'user@example.com'
+      };
 
       await PollController.getAllPolls(req as AuthRequest, res);
 
@@ -164,20 +144,18 @@ router.get('/stats',
 router.post('/:id/vote', 
   validatePollId,
   handleValidationErrors,
-  // AUTHENTICATION: Uncomment when deploying with authentication
-  // validatePollAccess,
-  // canUserVote,
   async (req: Request, res: Response) => {
     try {
-      // FOR LOCALHOST TESTING: Mock user in request
-      if (!(req as any).user) {
-        (req as any).user = {
-          _id: '507f1f77bcf86cd799439011', // Valid ObjectId format
-          id: '507f1f77bcf86cd799439011',
-          name: 'Test User',
-          email: 'test@example.com'
-        };
-      }
+      // Get user ID from Clerk authentication
+      const authReq = req as AuthenticatedRequest;
+      console.log('🗳️ Vote request from user:', authReq.auth.userId);
+      
+      (req as any).user = {
+        _id: authReq.auth.userId,
+        id: authReq.auth.userId,
+        name: 'User',
+        email: 'user@example.com'
+      };
 
       await PollController.voteOnPoll(req as AuthRequest, res);
 
