@@ -9,7 +9,7 @@ export interface IPoll extends Document {
   timeSlot: 'morning' | 'afternoon' | 'evening';
   maxStudents: number;
   creator: mongoose.Types.ObjectId | string; // Allow both ObjectId and string
-  votes: mongoose.Types.ObjectId[];
+  votes: mongoose.Types.ObjectId[] | string[];
   status: 'active' | 'completed' | 'scheduled' | 'accepted';
   targetVotes: number;
   scheduledDate?: Date;
@@ -82,7 +82,7 @@ const PollSchema: Schema = new Schema({
     required: false // Optional creator name field
   },
   votes: [{
-    type: Schema.Types.ObjectId,
+    type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String
     ref: 'User'
   }],
   status: {
