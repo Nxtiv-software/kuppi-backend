@@ -4,13 +4,15 @@ import Session from '../models/Session';
 import Poll from '../models/Poll';
 import User from '../models/user';
 import mongoose from 'mongoose';
+import { AuthenticatedRequest } from '../middlewares/clerkAuth';
 
 // Get session requests for tutor (polls with >50% votes)
 export const getSessionRequests = async (req: Request, res: Response) => {
   try {
-    // For testing without auth middleware, use a dummy tutor ID
-    // In production, get from req.auth.userId
-    const tutorId = req.params.tutorId || 'temp_tutor_id';
+    // Get tutor ID from authenticated user or URL parameter for testing
+    const tutorId = (req as AuthenticatedRequest).auth?.userId || req.params.tutorId || 'temp_tutor_id';
+
+    console.log('Getting session requests for tutor:', tutorId);
 
     // Find polls with vote percentage > 50% that don't have sessions yet
     const polls = await Poll.aggregate([
@@ -85,8 +87,8 @@ export const acceptSessionRequest = async (req: Request, res: Response) => {
     console.log('Request body:', req.body);
     
     const { pollId } = req.params;
-    // For testing without auth middleware
-    const tutorId = req.body.tutorId || 'temp_tutor_id';
+    // Get tutor ID from authenticated user or body for testing
+    const tutorId = (req as AuthenticatedRequest).auth?.userId || req.body.tutorId || 'temp_tutor_id';
     const tutorName = req.body.tutorName || 'Test Tutor';
     const tutorEmail = req.body.tutorEmail || 'tutor@test.com';
 
@@ -192,7 +194,6 @@ export const scheduleSession = async (req: Request, res: Response) => {
   try {
     const { pollId } = req.params;
     const {
-      tutorId = 'temp_tutor_id',
       tutorName = 'Test Tutor',
       tutorEmail = 'tutor@test.com',
       date,
@@ -204,6 +205,9 @@ export const scheduleSession = async (req: Request, res: Response) => {
       materials,
       notes
     } = req.body;
+
+    // Get tutor ID from authenticated user or body for testing
+    const tutorId = (req as AuthenticatedRequest).auth?.userId || req.body.tutorId || 'temp_tutor_id';
 
     // Validate required fields
     if (!date || !time || !duration || feePerStudent === undefined || !maxStudents) {
@@ -231,6 +235,14 @@ export const scheduleSession = async (req: Request, res: Response) => {
       });
     }
 
+    console.log('Scheduling session for poll:', pollId);
+    console.log('Poll details:', {
+      title: poll.title,
+      subject: poll.subject,
+      voters: poll.votes,
+      voterCount: poll.votes?.length || 0
+    });
+
     // Create the session
     const session = new Session({
       pollId,
@@ -246,24 +258,35 @@ export const scheduleSession = async (req: Request, res: Response) => {
       duration: Number(duration),
       feePerStudent: Number(feePerStudent),
       maxStudents: Number(maxStudents),
-      enrolledStudents: poll.votes || [], // Auto-enroll voters
+      enrolledStudents: poll.votes || [], // Auto-enroll all voters
       meetingLink,
       materials: materials || [],
       notes
     });
 
     await session.save();
+    
+    console.log('Session created successfully:', {
+      sessionId: session._id,
+      enrolledStudents: session.enrolledStudents,
+      enrolledCount: session.enrolledStudents.length
+    });
 
     // Update poll status
     await Poll.findByIdAndUpdate(pollId, { 
       status: 'scheduled',
       sessionId: session._id
     });
+    
+    console.log('Poll status updated to scheduled');
 
     res.status(201).json({
       success: true,
       message: 'Session scheduled successfully',
-      data: session
+      data: {
+        ...session.toObject(),
+        enrolledStudentsCount: session.enrolledStudents.length
+      }
     });
   } catch (error) {
     console.error('Error scheduling session:', error);
@@ -278,8 +301,8 @@ export const scheduleSession = async (req: Request, res: Response) => {
 // Get scheduled sessions for a tutor
 export const getMyScheduledSessions = async (req: Request, res: Response) => {
   try {
-    // For testing without auth middleware
-    const tutorId = req.params.tutorId || 'temp_tutor_id';
+    // Get tutor ID from authenticated user or parameters for testing
+    const tutorId = (req as AuthenticatedRequest).auth?.userId || req.params.tutorId || 'temp_tutor_id';
 
     const sessions = await Session.find({ tutorId })
       .sort({ date: 1 });
@@ -301,31 +324,132 @@ export const getMyScheduledSessions = async (req: Request, res: Response) => {
 // Get sessions for a student (polls they voted on)
 export const getMySessionsAsStudent = async (req: Request, res: Response) => {
   try {
-    // For testing without auth middleware
-    const studentIdParam = req.params.studentId || req.query.studentId || 'temp_student_id';
+    console.log('📚 getMySessionsAsStudent called');
+    console.log('📚 Auth object:', (req as AuthenticatedRequest).auth);
+    
+    // Get student ID from authenticated user or parameters for testing
+    const studentIdParam = (req as AuthenticatedRequest).auth?.userId || 
+                          req.params.studentId || 
+                          req.query.studentId || 
+                          req.headers['x-user-id'] || 
+                          'temp_student_id';
+    
     const studentId = typeof studentIdParam === 'string' ? studentIdParam : String(studentIdParam);
 
-    console.log('Getting sessions for student:', studentId);
+    console.log('📚 Getting sessions for student:', studentId);
+    console.log('📚 Student ID source:', (req as AuthenticatedRequest).auth?.userId ? 'AUTH' : 'FALLBACK');
 
-    // Find sessions where the student is enrolled
-    let sessions: any[] = [];
+    // For Clerk user IDs (which are strings), we need to handle them differently
+    // Clerk user IDs are not MongoDB ObjectIds, so we need to store them as strings in our polls
     
-    // Check if studentId is a valid ObjectId
-    if (mongoose.Types.ObjectId.isValid(studentId)) {
-      sessions = await Session.find({ 
-        enrolledStudents: studentId 
-      }).sort({ date: 1 });
-    } else {
-      // For testing with string IDs, return empty array
-      console.log('Invalid ObjectId, returning empty sessions array');
-      sessions = [];
+    // Step 1: Find polls that this student voted on
+    let pollsVotedOn: any[] = [];
+    
+    console.log('🔍 Looking for polls voted on by student:', studentId);
+    
+    // Look for polls where the student's ID is in the votes array
+    pollsVotedOn = await Poll.find({
+      votes: { $in: [studentId] }
+    }).select('_id title description subject chapter');
+    
+    console.log('📊 Found polls (string approach):', pollsVotedOn.length);
+    
+    // If no polls found with string comparison and it looks like an ObjectId, try ObjectId
+    if (pollsVotedOn.length === 0 && mongoose.Types.ObjectId.isValid(studentId)) {
+      try {
+        const objectId = new mongoose.Types.ObjectId(studentId);
+        pollsVotedOn = await Poll.find({
+          votes: objectId
+        }).select('_id title description subject chapter');
+        
+        console.log('📊 Found polls (ObjectId approach):', pollsVotedOn.length);
+      } catch (err) {
+        console.log('❌ ObjectId conversion failed:', err);
+      }
     }
 
-    console.log('Found sessions:', sessions.length);
+    // Step 2: Find sessions created from these polls
+    let sessions: any[] = [];
+    if (pollsVotedOn.length > 0) {
+      // Convert ObjectIds to strings for comparison
+      const pollIds = pollsVotedOn.map(poll => poll._id.toString());
+      
+      console.log('🔍 Looking for sessions with poll IDs (as strings):', pollIds);
+      
+      // First, let's try to find ANY sessions to see what's in the database
+      const allSessions = await Session.find({});
+      console.log('📋 All sessions in database:', allSessions.length);
+      allSessions.forEach(session => {
+        console.log(`📋 Session ${session._id}: pollId=${session.pollId}, status=${session.status}`);
+      });
+      
+      // Find sessions using string poll IDs
+      sessions = await Session.find({
+        pollId: { $in: pollIds }
+        // Remove status filter to find all sessions regardless of status
+      })
+      .sort({ createdAt: -1 });
+      
+      console.log('📚 Found sessions with string pollId filter:', sessions.length);
+      
+      // If we found sessions, populate the poll data manually
+      if (sessions.length > 0) {
+        for (let session of sessions) {
+          const poll = pollsVotedOn.find(p => p._id.toString() === session.pollId);
+          if (poll) {
+            session = { ...session.toObject(), pollData: poll };
+          }
+        }
+      }
+      
+      // Log session details for debugging
+      sessions.forEach(session => {
+        console.log(`📚 Session: ${session._id}, Status: ${session.status}, PollId: ${session.pollId}`);
+      });
+    }
+
+    console.log('Total sessions found for student:', sessions.length);
+
+    // Format sessions for student dashboard
+    const formattedSessions = sessions.map(session => {
+      // Use pollData if available (manually populated), otherwise try pollId
+      const pollDetails = session.pollData || session.pollId;
+      
+      return {
+        _id: session._id,
+        title: session.title,
+        subject: session.subject,
+        topic: session.topic,
+        description: session.description,
+        date: session.date,
+        time: session.time,
+        duration: session.duration,
+        feePerStudent: session.feePerStudent,
+        maxStudents: session.maxStudents,
+        currentStudents: session.enrolledStudents ? session.enrolledStudents.length : 0,
+        status: session.status,
+        meetingLink: session.meetingLink,
+        materials: session.materials,
+        notes: session.notes,
+        tutorName: session.tutorName,
+        tutorEmail: session.tutorEmail,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        pollDetails: pollDetails ? {
+          title: pollDetails.title,
+          description: pollDetails.description,
+          subject: pollDetails.subject,
+          chapter: pollDetails.chapter
+        } : null
+      };
+    });
+
+    console.log('Formatted sessions for student dashboard:', formattedSessions.length);
 
     res.status(200).json({
       success: true,
-      data: sessions
+      sessions: formattedSessions,
+      message: `Found ${formattedSessions.length} scheduled sessions for student`
     });
   } catch (error) {
     console.error('Error fetching student sessions:', error);
