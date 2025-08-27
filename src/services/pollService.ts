@@ -68,7 +68,8 @@ export class PollService {
     const total = await Poll.countDocuments(query);
 
     const pollsWithUserData = polls.map((poll: any) => {
-      const hasVoted = poll.votes.some((vote: mongoose.Types.ObjectId) => vote.toString() === userId);
+      // Handle both string and ObjectId votes
+      const hasVoted = poll.votes.some((vote: any) => vote.toString() === userId);
       return {
         ...poll.toObject(),
         voteCount: poll.votes.length,
@@ -108,11 +109,14 @@ export class PollService {
       throw new Error('Poll not found');
     }
 
-    if (poll.votes.some(vote => vote.toString() === userId)) {
+    // Check if user has already voted (handle both string and ObjectId comparison)
+    const hasVoted = poll.votes.some(vote => vote.toString() === userId);
+    if (hasVoted) {
       throw new Error('You have already voted on this poll');
     }
 
-    poll.votes.push(new mongoose.Types.ObjectId(userId));
+    // For Clerk user IDs, store as string directly
+    poll.votes.push(userId as any);
     return await poll.save();
   }
 
