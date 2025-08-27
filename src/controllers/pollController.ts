@@ -163,6 +163,8 @@ export class PollController {
       const pollId = req.params.id;
       const userId = req.user?.id || req.user?._id;
 
+      console.log('🗳️ Voting attempt - Poll:', pollId, 'User:', userId);
+
       if (!mongoose.Types.ObjectId.isValid(pollId)) {
         res.status(400).json({
           success: false,
@@ -171,11 +173,11 @@ export class PollController {
         return;
       }
 
-      // Validate userId is a valid ObjectId for voting
-      if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      // For Clerk user IDs, we don't need to validate as ObjectId
+      if (!userId) {
         res.status(400).json({
           success: false,
-          message: 'Invalid user ID for voting'
+          message: 'User ID required for voting'
         });
         return;
       }
@@ -198,9 +200,13 @@ export class PollController {
         return;
       }
 
-      // Check if user has already voted (handle ObjectId comparison properly)
-      const userObjectId = new mongoose.Types.ObjectId(userId);
-      if (poll.votes.some(voteId => voteId.toString() === userObjectId.toString())) {
+      // Check if user has already voted (handle both ObjectId and string user IDs)
+      const hasAlreadyVoted = poll.votes.some(voteId => {
+        return voteId.toString() === userId.toString();
+      });
+
+      if (hasAlreadyVoted) {
+        console.log('❌ User has already voted');
         res.status(400).json({
           success: false,
           message: 'You have already voted on this poll'
@@ -208,11 +214,14 @@ export class PollController {
         return;
       }
 
-      poll.votes.push(userObjectId);
+      // Add vote (store as string for Clerk user IDs)
+      poll.votes.push(userId as any);
+      console.log('✅ Vote added. Total votes:', poll.votes.length, '/', poll.targetVotes);
       
       // Check if poll should be scheduled after this vote
       if (poll.votes.length >= poll.targetVotes && poll.status === 'active') {
         poll.status = 'scheduled';
+        console.log('📅 Poll status changed to scheduled');
       }
       
       await poll.save();
