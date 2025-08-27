@@ -1,5 +1,5 @@
 // routes/sessions.ts
-import express from 'express';
+import express, { Request, Response } from 'express';
 import {
   getSessionRequests,
   acceptSessionRequest,
@@ -8,31 +8,38 @@ import {
   getMyScheduledSessions,
   getMySessionsAsStudent
 } from '../controllers/sessionController';
+import { requireAuth, AuthenticatedRequest } from '../middlewares/clerkAuth';
 
 const router = express.Router();
 
+// Health check for authentication
+router.get('/auth-test', requireAuth, (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  res.json({
+    success: true,
+    message: 'Authentication working!',
+    userId: authReq.auth.userId,
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Get session requests for tutor (polls with >50% votes)
-// For testing: GET /sessions/requests/temp_tutor_id
-// In production: GET /sessions/requests (get tutorId from auth)
-router.get('/requests/:tutorId?', getSessionRequests);
+// Protected route - requires authentication
+router.get('/requests/:tutorId?', requireAuth, getSessionRequests);
 
-// Accept a session request
-router.post('/requests/:pollId/accept', acceptSessionRequest);
+// Accept a session request - protected route
+router.post('/requests/:pollId/accept', requireAuth, acceptSessionRequest);
 
-// Decline a session request
-router.post('/requests/:pollId/decline', declineSessionRequest);
+// Decline a session request - protected route
+router.post('/requests/:pollId/decline', requireAuth, declineSessionRequest);
 
-// Schedule a session after accepting
-router.post('/:pollId/schedule', scheduleSession);
+// Schedule a session after accepting - protected route
+router.post('/:pollId/schedule', requireAuth, scheduleSession);
 
-// Get scheduled sessions for a tutor
-// For testing: GET /sessions/scheduled/temp_tutor_id
-// In production: GET /sessions/scheduled (get tutorId from auth)
-router.get('/scheduled/:tutorId?', getMyScheduledSessions);
+// Get scheduled sessions for a tutor - protected route
+router.get('/scheduled/:tutorId?', requireAuth, getMyScheduledSessions);
 
-// Get sessions for a student (polls they voted on)
-// For testing: GET /sessions/my-sessions or GET /sessions/my-sessions/temp_student_id
-// In production: GET /sessions/my-sessions (get studentId from auth)
-router.get('/my-sessions/:studentId?', getMySessionsAsStudent);
+// Get sessions for a student (polls they voted on) - protected route
+router.get('/my-sessions/:studentId?', requireAuth, getMySessionsAsStudent);
 
 export default router;
