@@ -31,7 +31,9 @@ export const getSessionRequests = async (req: Request, res: Response) => {
       {
         $match: {
           votePercentage: { $gte: 50 },
-          subject: { $exists: true }
+          subject: { $exists: true },
+          status: { $ne: 'accepted' }, // Exclude already accepted polls
+          declinedBy: { $ne: tutorId } // Exclude polls declined by this tutor
         }
       },
       {
@@ -130,16 +132,12 @@ export const acceptSessionRequest = async (req: Request, res: Response) => {
       });
     }
 
-    // Mark the poll as accepted by this tutor
+    // Mark the poll as accepted by this tutor and hide from all tutors
     console.log('Updating poll status...');
     const updateData: any = {
-      status: 'accepted'
+      status: 'accepted',
+      acceptedBy: tutorId
     };
-    
-    // Only set acceptedBy if tutorId is a valid ObjectId
-    if (mongoose.Types.ObjectId.isValid(tutorId)) {
-      updateData.acceptedBy = tutorId;
-    }
     
     await Poll.findByIdAndUpdate(pollId, updateData);
 
@@ -163,6 +161,11 @@ export const declineSessionRequest = async (req: Request, res: Response) => {
   try {
     const { pollId } = req.params;
     const { reason } = req.body;
+    
+    // Get tutor ID from authenticated user
+    const tutorId = (req as AuthenticatedRequest).auth?.userId || req.body.tutorId || 'temp_tutor_id';
+
+    console.log('Declining session request for pollId:', pollId, 'by tutor:', tutorId);
 
     // Check if poll exists
     const poll = await Poll.findById(pollId);
@@ -173,8 +176,16 @@ export const declineSessionRequest = async (req: Request, res: Response) => {
       });
     }
 
-    // For now, just return success
-    // In a more complex system, you might want to track declined polls
+    // Add tutor to declinedBy array if not already present
+    if (!poll.declinedBy?.includes(tutorId)) {
+      await Poll.findByIdAndUpdate(pollId, {
+        $addToSet: { declinedBy: tutorId }
+      });
+      console.log('Added tutor to declinedBy list');
+    } else {
+      console.log('Tutor already in declinedBy list');
+    }
+
     res.status(200).json({
       success: true,
       message: 'Session request declined successfully'
@@ -501,6 +512,62 @@ export const getMySessionsAsStudent = async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch student sessions',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get accepted session requests that need scheduling (for tutor's dashboard)
+export const getAcceptedSessions = async (req: Request, res: Response) => {
+  try {
+    // Get tutor ID from authenticated user
+    const tutorId = (req as AuthenticatedRequest).auth?.userId || req.params.tutorId || 'temp_tutor_id';
+
+    console.log('Getting accepted sessions for tutor:', tutorId);
+
+    // Find polls that this tutor has accepted but haven't been scheduled yet
+    const acceptedPolls = await Poll.find({
+      acceptedBy: tutorId,
+      status: 'accepted'
+    }).sort({ createdAt: -1 });
+
+    // Check which ones don't have sessions yet
+    const pollsWithoutSessions = [];
+    for (const poll of acceptedPolls) {
+      const existingSession = await Session.findOne({ pollId: poll._id });
+      if (!existingSession) {
+        pollsWithoutSessions.push(poll);
+      }
+    }
+
+    // Format the response
+    const acceptedSessions = pollsWithoutSessions.map(poll => ({
+      _id: poll._id,
+      title: poll.title,
+      subject: poll.subject,
+      topic: poll.chapter,
+      description: poll.description,
+      voteCount: poll.votes.length,
+      totalVotes: poll.targetVotes,
+      votePercentage: poll.targetVotes > 0 ? Math.round((poll.votes.length / poll.targetVotes) * 100) : 0,
+      preferredDate: poll.preferredDate,
+      timeSlot: poll.timeSlot,
+      maxStudents: poll.maxStudents,
+      voters: poll.votes,
+      createdAt: poll.createdAt,
+      acceptedAt: poll.updatedAt
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: acceptedSessions,
+      message: `Found ${acceptedSessions.length} accepted sessions awaiting scheduling`
+    });
+  } catch (error) {
+    console.error('Error fetching accepted sessions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch accepted sessions',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
