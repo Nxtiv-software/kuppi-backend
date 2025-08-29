@@ -92,7 +92,7 @@ const PollSchema: Schema = new Schema({
   },
   targetVotes: {
     type: Number,
-    default: 1 // Changed to 1 vote for easier testing (1 vote = 100%)
+    default: 3 // Default to 3 votes (will be overridden during creation)
   },
   scheduledDate: {
     type: Date

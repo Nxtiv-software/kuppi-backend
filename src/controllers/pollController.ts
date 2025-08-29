@@ -242,10 +242,14 @@ export class PollController {
       poll.votes.push(userId as any);
       console.log('✅ Vote added. Total votes:', poll.votes.length, '/', poll.targetVotes);
       
-      // Check if poll should be scheduled after this vote
-      if (poll.votes.length >= poll.targetVotes && poll.status === 'active') {
-        poll.status = 'scheduled';
-        console.log('📅 Poll status changed to scheduled');
+      // Note: Poll status stays 'active' to allow more votes
+      // Poll becomes 'scheduled' only when tutor accepts and schedules it
+      // When poll reaches ≥50% votes, it appears in tutor session requests
+      const votePercentage = (poll.votes.length / poll.targetVotes) * 100;
+      console.log('📊 Vote percentage:', votePercentage.toFixed(1) + '%');
+      
+      if (votePercentage >= 50) {
+        console.log('🎯 Poll reached 50%+ votes - now eligible for session requests');
       }
       
       await poll.save();
@@ -258,8 +262,9 @@ export class PollController {
         data: {
           pollId: poll._id,
           voteCount: poll.votes.length,
-          status: poll.status,
-          isNowScheduled: poll.status === 'scheduled' && poll.votes.length === poll.targetVotes
+          status: poll.status, // Should remain 'active'
+          votePercentage: votePercentage,
+          eligibleForScheduling: votePercentage >= 50
         }
       });
 
@@ -561,6 +566,7 @@ export class PollController {
         preferredDate: selectedDate,
         timeSlot,
         maxStudents: parseInt(maxStudents.toString()),
+        targetVotes: parseInt(maxStudents.toString()), // Users can vote until 100% (maxStudents)
         creator: creatorValue,
         createdBy: createdBy, // Store the original string ID if provided
         creatorName: creatorName // Store the creator name if provided
