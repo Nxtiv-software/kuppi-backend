@@ -164,10 +164,15 @@ export class PollController {
       // Use Clerk authentication - get userId from req.auth
       const userId = (req as any).auth?.userId || req.user?.id || req.user?._id;
 
-      console.log('🗳️ Voting attempt - Poll:', pollId, 'User:', userId);
+      console.log('🗳️ ===== VOTING DEBUG =====');
+      console.log('🗳️ Poll ID:', pollId);
+      console.log('🗳️ User ID:', userId);
       console.log('🗳️ Auth source:', (req as any).auth ? 'Clerk' : 'Legacy');
+      console.log('🗳️ req.auth:', (req as any).auth);
+      console.log('🗳️ req.user:', req.user);
 
       if (!mongoose.Types.ObjectId.isValid(pollId)) {
+        console.log('❌ Invalid poll ID format');
         res.status(400).json({
           success: false,
           message: 'Invalid poll ID'
@@ -187,9 +192,11 @@ export class PollController {
         return;
       }
 
+      console.log('🔍 Looking for poll with ID:', pollId);
       const poll = await Poll.findById(pollId);
       
       if (!poll) {
+        console.log('❌ Poll not found in database');
         res.status(404).json({
           success: false,
           message: 'Poll not found'
@@ -197,7 +204,13 @@ export class PollController {
         return;
       }
 
+      console.log('✅ Poll found:', poll.title);
+      console.log('📊 Poll status:', poll.status);
+      console.log('📊 Current votes:', poll.votes);
+      console.log('📊 Target votes:', poll.targetVotes);
+
       if (poll.status !== 'active') {
+        console.log('❌ Poll is not active, status:', poll.status);
         res.status(400).json({
           success: false,
           message: 'This poll is no longer active for voting'
@@ -207,8 +220,13 @@ export class PollController {
 
       // Check if user has already voted (handle both ObjectId and string user IDs)
       const hasAlreadyVoted = poll.votes.some(voteId => {
-        return voteId.toString() === userId.toString();
+        const voteIdString = voteId.toString();
+        const userIdString = userId.toString();
+        console.log(`🔍 Comparing vote: "${voteIdString}" with user: "${userIdString}"`);
+        return voteIdString === userIdString;
       });
+
+      console.log('🔍 Has already voted:', hasAlreadyVoted);
 
       if (hasAlreadyVoted) {
         console.log('❌ User has already voted');
@@ -220,6 +238,7 @@ export class PollController {
       }
 
       // Add vote (store as string for Clerk user IDs)
+      console.log('✅ Adding vote for user:', userId);
       poll.votes.push(userId as any);
       console.log('✅ Vote added. Total votes:', poll.votes.length, '/', poll.targetVotes);
       
@@ -230,6 +249,8 @@ export class PollController {
       }
       
       await poll.save();
+      console.log('💾 Poll saved successfully');
+      console.log('🗳️ ===== VOTING SUCCESS =====');
 
       res.json({
         success: true,
@@ -243,7 +264,9 @@ export class PollController {
       });
 
     } catch (error: any) {
-      console.error('Error voting on poll:', error);
+      console.error('❌ ===== VOTING ERROR =====');
+      console.error('❌ Error voting on poll:', error);
+      console.error('❌ Error stack:', error.stack);
       res.status(500).json({
         success: false,
         message: 'Server error while voting on poll',
