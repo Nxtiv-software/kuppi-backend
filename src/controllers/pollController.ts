@@ -161,9 +161,11 @@ export class PollController {
   static async voteOnPoll(req: AuthRequest, res: Response): Promise<void> {
     try {
       const pollId = req.params.id;
-      const userId = req.user?.id || req.user?._id;
+      // Use Clerk authentication - get userId from req.auth
+      const userId = (req as any).auth?.userId || req.user?.id || req.user?._id;
 
       console.log('🗳️ Voting attempt - Poll:', pollId, 'User:', userId);
+      console.log('🗳️ Auth source:', (req as any).auth ? 'Clerk' : 'Legacy');
 
       if (!mongoose.Types.ObjectId.isValid(pollId)) {
         res.status(400).json({
@@ -175,6 +177,9 @@ export class PollController {
 
       // For Clerk user IDs, we don't need to validate as ObjectId
       if (!userId) {
+        console.log('❌ No user ID found in request');
+        console.log('❌ req.auth:', (req as any).auth);
+        console.log('❌ req.user:', req.user);
         res.status(400).json({
           success: false,
           message: 'User ID required for voting'
@@ -253,7 +258,8 @@ export class PollController {
   static async removeVote(req: AuthRequest, res: Response): Promise<void> {
     try {
       const pollId = req.params.id;
-      const userId = req.user?.id || req.user?._id;
+      // Use Clerk authentication - get userId from req.auth
+      const userId = (req as any).auth?.userId || req.user?.id || req.user?._id;
 
       if (!mongoose.Types.ObjectId.isValid(pollId)) {
         res.status(400).json({
@@ -336,7 +342,8 @@ export class PollController {
   static async deletePoll(req: AuthRequest, res: Response): Promise<void> {
     try {
       const pollId = req.params.id;
-      const userId = req.user?.id || req.user?._id;
+      // Use Clerk authentication - get userId from req.auth
+      const userId = (req as any).auth?.userId || req.user?.id || req.user?._id;
 
       if (!mongoose.Types.ObjectId.isValid(pollId)) {
         res.status(400).json({
@@ -482,7 +489,8 @@ export class PollController {
         creatorName
       } = req.body;
 
-      const userId = req.user?.id || req.user?._id;
+      // Use Clerk authentication - get userId from req.auth
+      const userId = (req as any).auth?.userId || req.user?.id || req.user?._id;
 
       // Validation
       if (!title || !subject || !chapter || !description || !preferredDate || !timeSlot || !maxStudents) {
@@ -570,7 +578,8 @@ export class PollController {
   static async getAllPolls(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { subject, status, date, page = 1, limit = 10 } = req.query;
-      const userId = req.user?.id || req.user?._id;
+      // Use Clerk authentication - get userId from req.auth
+      const userId = (req as any).auth?.userId || req.user?.id || req.user?._id;
       
       let query: any = {};
       
@@ -650,7 +659,8 @@ export class PollController {
    */
   static async getTrendingPolls(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const userId = req.user?.id || req.user?._id;
+      // Use Clerk authentication - get userId from req.auth
+      const userId = (req as any).auth?.userId || req.user?.id || req.user?._id;
 
       // Use the static method from the Poll model
       const trendingPolls = await Poll.getTrendingPolls();
@@ -696,7 +706,8 @@ export class PollController {
   static async getPollById(req: AuthRequest, res: Response): Promise<void> {
     try {
       const pollId = req.params.id;
-      const userId = req.user?.id || req.user?._id;
+      // Use Clerk authentication - get userId from req.auth
+      const userId = (req as any).auth?.userId || req.user?.id || req.user?._id;
 
       if (!mongoose.Types.ObjectId.isValid(pollId)) {
         res.status(400).json({
