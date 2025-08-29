@@ -32,7 +32,7 @@ export const getSessionRequests = async (req: Request, res: Response) => {
         $match: {
           votePercentage: { $gte: 50 },
           subject: { $exists: true },
-          status: { $ne: 'accepted' }, // Exclude already accepted polls
+          status: { $nin: ['accepted', 'scheduled'] }, // Exclude accepted and scheduled polls
           declinedBy: { $ne: tutorId } // Exclude polls declined by this tutor
         }
       },
