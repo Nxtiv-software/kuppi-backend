@@ -26,6 +26,7 @@ router.get('/auth-test', requireAuth, (req: Request, res: Response) => {
 // Get session requests for tutor (polls with >50% votes)
 // Protected route - requires authentication
 router.get('/requests/:tutorId?', requireAuth, getSessionRequests);
+router.get('/requests', requireAuth, getSessionRequests); // Alternative endpoint without tutorId
 
 // Accept a session request - protected route
 router.post('/requests/:pollId/accept', requireAuth, acceptSessionRequest);
@@ -38,6 +39,9 @@ router.post('/:pollId/schedule', requireAuth, scheduleSession);
 
 // Get scheduled sessions for a tutor - protected route
 router.get('/scheduled/:tutorId?', requireAuth, getMyScheduledSessions);
+
+// Alternative endpoint for tutor schedule (matches frontend API)
+router.get('/tutor-schedule', requireAuth, getMyScheduledSessions);
 
 // Get sessions for a student (polls they voted on) - protected route
 router.get('/my-sessions/:studentId?', requireAuth, getMySessionsAsStudent);
