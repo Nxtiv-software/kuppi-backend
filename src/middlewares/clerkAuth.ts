@@ -10,8 +10,18 @@ export interface AuthenticatedRequest extends Request {
 
 export const requireAuth = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    console.log('🔐 Auth middleware called for:', req.method, req.path);
-    console.log('🔐 Authorization header:', req.headers.authorization ? 'Present' : 'Missing');
+    // Reduced logging for frequent calls
+    const now = Date.now();
+    const logKey = `auth_log_${req.path}`;
+    const lastLog = (global as any)[logKey] || 0;
+    
+    const shouldLog = now - lastLog > 60000; // Only log every minute per endpoint
+    
+    if (shouldLog) {
+      console.log('🔐 Auth middleware called for:', req.method, req.path);
+      console.log('🔐 Authorization header:', req.headers.authorization ? 'Present' : 'Missing');
+      (global as any)[logKey] = now;
+    }
     
     const authHeader = req.headers.authorization;
     
@@ -24,14 +34,20 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
     }
 
     const token = authHeader.split(' ')[1];
-    console.log('🎫 Token found, length:', token.length);
-    console.log('🎫 Token preview:', token.substring(0, 50) + '...');
+    
+    if (shouldLog) {
+      console.log('🎫 Token found, length:', token.length);
+      console.log('🎫 Token preview:', token.substring(0, 50) + '...');
+    }
     
     // Decode JWT token without verification to get user ID
     // Clerk JWTs have the user ID in the 'sub' field
     try {
       const decoded = jwt.decode(token) as any;
-      console.log('🔍 Decoded token:', JSON.stringify(decoded, null, 2));
+      
+      if (shouldLog) {
+        console.log('🔍 Decoded token:', JSON.stringify(decoded, null, 2));
+      }
       
       if (!decoded) {
         console.log('❌ Token could not be decoded');
@@ -51,7 +67,9 @@ export const requireAuth = async (req: Request, res: Response, next: NextFunctio
         });
       }
 
-      console.log('✅ Authenticated user:', userId);
+      if (shouldLog) {
+        console.log('✅ Authenticated user:', userId);
+      }
 
       // Add user info to request
       (req as AuthenticatedRequest).auth = {

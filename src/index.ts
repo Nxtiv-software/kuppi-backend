@@ -26,9 +26,18 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use((req: Request, res: Response, next: NextFunction) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  if (req.body && Object.keys(req.body).length > 0) {
-    console.log("Request body:", JSON.stringify(req.body, null, 2));
+  // Reduced logging for frequent API calls
+  const now = Date.now();
+  const logKey = `request_log_${req.path}`;
+  const lastLog = (global as any)[logKey] || 0;
+  
+  // Only log each endpoint every 2 minutes, or always log non-GET requests
+  if (req.method !== 'GET' || now - lastLog > 120000) {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+    if (req.body && Object.keys(req.body).length > 0) {
+      console.log("Request body:", JSON.stringify(req.body, null, 2));
+    }
+    (global as any)[logKey] = now;
   }
   next();
 });
