@@ -259,6 +259,7 @@ export const scheduleSession = async (req: Request, res: Response) => {
       feePerStudent: Number(feePerStudent),
       maxStudents: Number(maxStudents),
       enrolledStudents: poll.votes || [], // Auto-enroll all voters
+      status: 'upcoming', // Explicitly set status
       meetingLink,
       materials: materials || [],
       notes
@@ -304,12 +305,56 @@ export const getMyScheduledSessions = async (req: Request, res: Response) => {
     // Get tutor ID from authenticated user or parameters for testing
     const tutorId = (req as AuthenticatedRequest).auth?.userId || req.params.tutorId || 'temp_tutor_id';
 
+    // Reduced logging - only log every 10th call or if it's been more than 5 minutes
+    const now = Date.now();
+    const lastLogKey = `schedule_log_${tutorId}`;
+    const lastLog = (global as any)[lastLogKey] || 0;
+    
+    if (now - lastLog > 300000) { // 5 minutes
+      console.log('📅 Getting scheduled sessions for tutor:', tutorId);
+      (global as any)[lastLogKey] = now;
+    }
+
     const sessions = await Session.find({ tutorId })
       .sort({ date: 1 });
 
+    // Only log count changes or first call
+    const countKey = `session_count_${tutorId}`;
+    const lastCount = (global as any)[countKey] || -1;
+    if (sessions.length !== lastCount) {
+      console.log(`📅 Found ${sessions.length} scheduled sessions for tutor`);
+      (global as any)[countKey] = sessions.length;
+    }
+
+    // Format the response to include all necessary data for frontend
+    const formattedSessions = sessions.map(session => ({
+      _id: session._id,
+      pollId: session.pollId,
+      title: session.title,
+      subject: session.subject,
+      topic: session.topic,
+      description: session.description,
+      date: session.date,
+      time: session.time,
+      duration: session.duration,
+      feePerStudent: session.feePerStudent,
+      maxStudents: session.maxStudents,
+      enrolledStudents: session.enrolledStudents,
+      currentStudents: session.enrolledStudents?.length || 0,
+      status: session.status,
+      meetingLink: session.meetingLink,
+      materials: session.materials,
+      notes: session.notes,
+      tutorName: session.tutorName,
+      tutorEmail: session.tutorEmail,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt
+    }));
+
     res.status(200).json({
       success: true,
-      data: sessions
+      data: formattedSessions,
+      count: formattedSessions.length
     });
   } catch (error) {
     console.error('Error fetching scheduled sessions:', error);
