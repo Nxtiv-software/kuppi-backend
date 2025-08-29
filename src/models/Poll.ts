@@ -15,6 +15,7 @@ export interface IPoll extends Document {
   scheduledDate?: Date;
   tutor?: mongoose.Types.ObjectId;
   acceptedBy?: mongoose.Types.ObjectId | string; // Tutor who accepted the request - allow both types
+  declinedBy?: (mongoose.Types.ObjectId | string)[]; // Tutors who declined the request
   sessionId?: mongoose.Types.ObjectId; // Reference to created session
   createdAt: Date;
   updatedAt: Date;
@@ -105,6 +106,10 @@ const PollSchema: Schema = new Schema({
     type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String
     ref: 'User'
   },
+  declinedBy: [{
+    type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String - tutors who declined
+    ref: 'User'
+  }],
   sessionId: {
     type: Schema.Types.ObjectId,
     ref: 'Session'

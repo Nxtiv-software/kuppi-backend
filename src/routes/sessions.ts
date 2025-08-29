@@ -6,7 +6,8 @@ import {
   declineSessionRequest,
   scheduleSession,
   getMyScheduledSessions,
-  getMySessionsAsStudent
+  getMySessionsAsStudent,
+  getAcceptedSessions
 } from '../controllers/sessionController';
 import { requireAuth, AuthenticatedRequest } from '../middlewares/clerkAuth';
 
@@ -39,6 +40,9 @@ router.post('/:pollId/schedule', requireAuth, scheduleSession);
 
 // Get scheduled sessions for a tutor - protected route
 router.get('/scheduled/:tutorId?', requireAuth, getMyScheduledSessions);
+
+// Get accepted sessions that need scheduling - protected route
+router.get('/accepted/:tutorId?', requireAuth, getAcceptedSessions);
 
 // Alternative endpoint for tutor schedule (matches frontend API)
 router.get('/tutor-schedule', requireAuth, getMyScheduledSessions);
