@@ -3,6 +3,7 @@ import Poll, { IPoll } from '../models/Poll';
 import { AuthRequest } from '../middlewares/auth';
 import mongoose from 'mongoose';
 import User from '../models/user';
+import { userService } from '../services/userService';
 
 // Interface for poll statistics
 interface PollStats {
@@ -645,19 +646,58 @@ export class PollController {
       const skip = (pageNum - 1) * limitNum;
 
       const polls = await Poll.find(query)
-        .populate('creator', 'name email')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum);
 
       const total = await Poll.countDocuments(query);
 
+      // Get all unique user IDs from polls
+      const userIds = new Set<string>();
+      polls.forEach(poll => {
+        if (poll.creator) userIds.add(poll.creator.toString());
+        if (poll.createdBy) userIds.add(poll.createdBy);
+        if (poll.acceptedBy) userIds.add(poll.acceptedBy.toString());
+        poll.votes.forEach((vote: any) => userIds.add(vote.toString()));
+      });
+
+      // Fetch user information for all users
+      const usersMap = await userService.getUsersInfo(Array.from(userIds));
+
       const pollsWithUserData = polls.map((poll: any) => {
         const hasVoted = poll.votes.some((voteId: any) => voteId.toString() === userId);
+        
+        // Get creator information
+        const creatorId = poll.createdBy || poll.creator?.toString();
+        const creatorInfo = creatorId ? usersMap.get(creatorId) : null;
+        
+        // Get acceptor information
+        const acceptorId = poll.acceptedBy?.toString();
+        const acceptorInfo = acceptorId ? usersMap.get(acceptorId) : null;
+
         return {
           ...poll.toObject(),
           voteCount: poll.votes.length,
-          hasVoted
+          hasVoted,
+          // Enhanced user data
+          creatorInfo: creatorInfo ? {
+            id: creatorInfo.id,
+            name: creatorInfo.name,
+            email: creatorInfo.email,
+            firstName: creatorInfo.firstName,
+            lastName: creatorInfo.lastName
+          } : {
+            id: creatorId || 'unknown',
+            name: poll.creatorName || 'Unknown User',
+            email: 'Unknown email'
+          },
+          acceptorInfo: acceptorInfo ? {
+            id: acceptorInfo.id,
+            name: acceptorInfo.name,
+            email: acceptorInfo.email,
+            firstName: acceptorInfo.firstName,
+            lastName: acceptorInfo.lastName
+          } : null
         };
       });
 
@@ -694,7 +734,19 @@ export class PollController {
       // Use the static method from the Poll model
       const trendingPolls = await Poll.getTrendingPolls();
 
-      // Add hasVoted field for each poll if user is authenticated
+      // Get all unique user IDs from trending polls
+      const userIds = new Set<string>();
+      trendingPolls.forEach((poll: any) => {
+        if (poll.creator) userIds.add(poll.creator.toString());
+        if (poll.createdBy) userIds.add(poll.createdBy);
+        if (poll.acceptedBy) userIds.add(poll.acceptedBy.toString());
+        poll.votes.forEach((vote: any) => userIds.add(vote.toString()));
+      });
+
+      // Fetch user information for all users
+      const usersMap = await userService.getUsersInfo(Array.from(userIds));
+
+      // Add hasVoted field and user data for each poll
       const pollsWithVoteStatus = trendingPolls.map((poll: any) => {
         let hasVoted = false;
         
@@ -707,10 +759,37 @@ export class PollController {
             return voteId.toString() === userId.toString();
           });
         }
+
+        // Get creator information
+        const creatorId = poll.createdBy || poll.creator?.toString();
+        const creatorInfo = creatorId ? usersMap.get(creatorId) : null;
+        
+        // Get acceptor information
+        const acceptorId = poll.acceptedBy?.toString();
+        const acceptorInfo = acceptorId ? usersMap.get(acceptorId) : null;
         
         return {
           ...poll,
-          hasVoted
+          hasVoted,
+          // Enhanced user data
+          creatorInfo: creatorInfo ? {
+            id: creatorInfo.id,
+            name: creatorInfo.name,
+            email: creatorInfo.email,
+            firstName: creatorInfo.firstName,
+            lastName: creatorInfo.lastName
+          } : {
+            id: creatorId || 'unknown',
+            name: poll.creatorName || 'Unknown User',
+            email: 'Unknown email'
+          },
+          acceptorInfo: acceptorInfo ? {
+            id: acceptorInfo.id,
+            name: acceptorInfo.name,
+            email: acceptorInfo.email,
+            firstName: acceptorInfo.firstName,
+            lastName: acceptorInfo.lastName
+          } : null
         };
       });
 
