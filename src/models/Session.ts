@@ -2,6 +2,22 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 // Interface for Session document
+// Interface for Attachment
+export interface IAttachment {
+  fileName: string;
+  originalName: string;
+  description?: string;
+  uploadedAt: Date;
+  fileSize: number;
+  mimeType: string;
+}
+
+// Interface for Announcement
+export interface IAnnouncement {
+  message: string;
+  addedAt: Date;
+}
+
 export interface ISession extends Document {
   pollId: mongoose.Types.ObjectId | string;
   tutorId: mongoose.Types.ObjectId | string;
@@ -20,6 +36,8 @@ export interface ISession extends Document {
   status: 'upcoming' | 'completed' | 'cancelled';
   meetingLink?: string;
   materials?: string[];
+  attachments?: IAttachment[];
+  announcements?: IAnnouncement[];
   notes?: string;
   rating?: number;
   reason?: string; // cancellation reason
@@ -108,6 +126,46 @@ const SessionSchema = new Schema<ISession>({
   materials: [{
     type: String,
     trim: true
+  }],
+  attachments: [{
+    fileName: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    originalName: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    description: {
+      type: String,
+      trim: true
+    },
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    },
+    fileSize: {
+      type: Number,
+      required: true
+    },
+    mimeType: {
+      type: String,
+      required: true,
+      trim: true
+    }
+  }],
+  announcements: [{
+    message: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    addedAt: {
+      type: Date,
+      default: Date.now
+    }
   }],
   notes: {
     type: String,
