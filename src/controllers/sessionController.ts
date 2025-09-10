@@ -417,9 +417,11 @@ export const getMyScheduledSessions = async (req: Request, res: Response) => {
         duration: session.duration,
         feePerStudent: session.feePerStudent,
         maxStudents: session.maxStudents,
-        enrolledStudents: session.enrolledStudents,
-        enrolledStudentsInfo: enrolledStudentsWithInfo, // Add detailed student info
-        currentStudents: session.enrolledStudents?.length || 0,
+        // Provide clean student count instead of raw IDs
+        currentStudents: enrolledStudentsWithInfo.length,
+        enrolledStudentsCount: enrolledStudentsWithInfo.length,
+        // Provide clean student information without exposing raw user IDs
+        enrolledStudentsInfo: enrolledStudentsWithInfo,
         status: session.status,
         meetingLink: session.meetingLink,
         materials: session.materials,
@@ -563,16 +565,19 @@ export const getMySessionsAsStudent = async (req: Request, res: Response) => {
         attachments: session.attachments || [], // Include attachments
         announcements: session.announcements || [], // Include announcements
         notes: session.notes,
-        tutorName: tutorInfo?.name || session.tutorName || 'Unknown Tutor',
-        tutorEmail: tutorInfo?.email || session.tutorEmail || 'Unknown email',
+        // Clean tutor information without exposing raw IDs
+        tutorName: tutorInfo?.name || session.tutorName || 'Anonymous Tutor',
+        tutorEmail: tutorInfo?.email || session.tutorEmail,
         tutorInfo: tutorInfo ? {
-          id: tutorInfo.id,
           name: tutorInfo.name,
           email: tutorInfo.email,
           firstName: tutorInfo.firstName,
           lastName: tutorInfo.lastName,
           imageUrl: tutorInfo.imageUrl
-        } : null,
+        } : {
+          name: session.tutorName || 'Anonymous Tutor',
+          email: session.tutorEmail
+        },
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
         pollDetails: pollDetails ? {

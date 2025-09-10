@@ -559,6 +559,18 @@ export class PollController {
         }
       }
 
+      // Get creator information from Clerk if not provided
+      let finalCreatorName = creatorName;
+      if (!finalCreatorName && userId) {
+        try {
+          const userInfo = await userService.getUserInfo(userId);
+          finalCreatorName = userInfo?.name || 'Anonymous User';
+        } catch (error) {
+          console.log('Could not fetch user info for creator name:', error);
+          finalCreatorName = 'Anonymous User';
+        }
+      }
+
       const newPoll = new Poll({
         title: title.trim(),
         subject,
@@ -569,27 +581,37 @@ export class PollController {
         maxStudents: parseInt(maxStudents.toString()),
         targetVotes: parseInt(maxStudents.toString()), // Users can vote until 100% (maxStudents)
         creator: creatorValue,
-        createdBy: createdBy, // Store the original string ID if provided
-        creatorName: creatorName // Store the creator name if provided
+        createdBy: userId, // Always store the authenticated user ID
+        creatorName: finalCreatorName // Store the resolved creator name
       });
 
       const savedPoll = await newPoll.save();
       
-      // Try to populate creator info if it's a valid ObjectId
-      let populatedPoll = savedPoll;
-      if (mongoose.Types.ObjectId.isValid(savedPoll.creator)) {
-        try {
-          populatedPoll = await savedPoll.populate('creator', 'name email');
-        } catch (populateError) {
-          // If populate fails, use the saved poll as is
-          console.log('Failed to populate creator, using saved poll as is');
+      // Return clean poll data without exposing raw user IDs
+      const cleanPollResponse = {
+        _id: savedPoll._id,
+        title: savedPoll.title,
+        subject: savedPoll.subject,
+        chapter: savedPoll.chapter,
+        description: savedPoll.description,
+        preferredDate: savedPoll.preferredDate,
+        timeSlot: savedPoll.timeSlot,
+        maxStudents: savedPoll.maxStudents,
+        targetVotes: savedPoll.targetVotes,
+        status: savedPoll.status,
+        createdAt: savedPoll.createdAt,
+        updatedAt: savedPoll.updatedAt,
+        voteCount: 0,
+        creatorName: finalCreatorName,
+        creatorInfo: {
+          name: finalCreatorName
         }
-      }
+      };
 
       res.status(201).json({
         success: true,
         message: 'Poll created successfully',
-        data: populatedPoll
+        data: cleanPollResponse
       });
 
     } catch (error: any) {
@@ -675,11 +697,27 @@ export class PollController {
         const acceptorId = poll.acceptedBy?.toString();
         const acceptorInfo = acceptorId ? usersMap.get(acceptorId) : null;
 
-        return {
-          ...poll.toObject(),
+        // Clean poll object without exposing raw user IDs
+        const cleanPoll = {
+          _id: poll._id,
+          title: poll.title,
+          subject: poll.subject,
+          chapter: poll.chapter,
+          description: poll.description,
+          preferredDate: poll.preferredDate,
+          timeSlot: poll.timeSlot,
+          maxStudents: poll.maxStudents,
+          targetVotes: poll.targetVotes,
+          status: poll.status,
+          scheduledDate: poll.scheduledDate,
+          sessionId: poll.sessionId,
+          createdAt: poll.createdAt,
+          updatedAt: poll.updatedAt,
           voteCount: poll.votes.length,
           hasVoted,
-          // Enhanced user data
+          // Always provide clean creator information
+          creatorName: creatorInfo ? creatorInfo.name : (poll.creatorName || 'Anonymous User'),
+          creatorEmail: creatorInfo ? creatorInfo.email : null,
           creatorInfo: creatorInfo ? {
             id: creatorInfo.id,
             name: creatorInfo.name,
@@ -687,18 +725,24 @@ export class PollController {
             firstName: creatorInfo.firstName,
             lastName: creatorInfo.lastName
           } : {
-            id: creatorId || 'unknown',
-            name: poll.creatorName || 'Unknown User',
-            email: 'Unknown email'
+            name: poll.creatorName || 'Anonymous User',
+            email: null
           },
+          // Clean acceptor information (tutor who accepted)
+          acceptorName: acceptorInfo ? acceptorInfo.name : null,
           acceptorInfo: acceptorInfo ? {
             id: acceptorInfo.id,
             name: acceptorInfo.name,
             email: acceptorInfo.email,
             firstName: acceptorInfo.firstName,
             lastName: acceptorInfo.lastName
-          } : null
+          } : null,
+          // Provide clean vote information without exposing user IDs
+          votersCount: poll.votes.length,
+          // Don't expose raw votes array with user IDs
         };
+
+        return cleanPoll;
       });
 
       res.json({
@@ -768,10 +812,27 @@ export class PollController {
         const acceptorId = poll.acceptedBy?.toString();
         const acceptorInfo = acceptorId ? usersMap.get(acceptorId) : null;
         
+        // Return clean poll data without exposing raw user IDs
         return {
-          ...poll,
+          _id: poll._id,
+          title: poll.title,
+          subject: poll.subject,
+          chapter: poll.chapter,
+          description: poll.description,
+          preferredDate: poll.preferredDate,
+          timeSlot: poll.timeSlot,
+          maxStudents: poll.maxStudents,
+          targetVotes: poll.targetVotes,
+          status: poll.status,
+          scheduledDate: poll.scheduledDate,
+          sessionId: poll.sessionId,
+          createdAt: poll.createdAt,
+          updatedAt: poll.updatedAt,
+          voteCount: poll.votes?.length || 0,
           hasVoted,
-          // Enhanced user data
+          // Always provide clean creator information
+          creatorName: creatorInfo ? creatorInfo.name : (poll.creatorName || 'Anonymous User'),
+          creatorEmail: creatorInfo ? creatorInfo.email : null,
           creatorInfo: creatorInfo ? {
             id: creatorInfo.id,
             name: creatorInfo.name,
@@ -779,17 +840,20 @@ export class PollController {
             firstName: creatorInfo.firstName,
             lastName: creatorInfo.lastName
           } : {
-            id: creatorId || 'unknown',
-            name: poll.creatorName || 'Unknown User',
-            email: 'Unknown email'
+            name: poll.creatorName || 'Anonymous User',
+            email: null
           },
+          // Clean acceptor information (tutor who accepted)
+          acceptorName: acceptorInfo ? acceptorInfo.name : null,
           acceptorInfo: acceptorInfo ? {
             id: acceptorInfo.id,
             name: acceptorInfo.name,
             email: acceptorInfo.email,
             firstName: acceptorInfo.firstName,
             lastName: acceptorInfo.lastName
-          } : null
+          } : null,
+          // Provide clean vote information without exposing user IDs
+          votersCount: poll.votes?.length || 0
         };
       });
 
