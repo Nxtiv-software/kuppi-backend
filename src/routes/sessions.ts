@@ -7,7 +7,11 @@ import {
   scheduleSession,
   getMyScheduledSessions,
   getMySessionsAsStudent,
-  getAcceptedSessions
+  getAcceptedSessions,
+  addMeetingLink,
+  addSessionAttachment,
+  addSessionAnnouncement,
+  downloadAttachment
 } from '../controllers/sessionController';
 import { requireAuth, AuthenticatedRequest } from '../middlewares/clerkAuth';
 
@@ -49,5 +53,18 @@ router.get('/tutor-schedule', requireAuth, getMyScheduledSessions);
 
 // Get sessions for a student (polls they voted on) - protected route
 router.get('/my-sessions/:studentId?', requireAuth, getMySessionsAsStudent);
+
+// Session Resource Management - protected routes
+// Add meeting link to a session
+router.post('/:sessionId/meeting-link', requireAuth, addMeetingLink);
+
+// Add attachment to a session (with file upload)
+router.post('/:sessionId/attachment', requireAuth, addSessionAttachment);
+
+// Add announcement to a session
+router.post('/:sessionId/announcement', requireAuth, addSessionAnnouncement);
+
+// Download attachment from a session
+router.get('/:sessionId/attachments/:fileName', requireAuth, downloadAttachment);
 
 export default router;
