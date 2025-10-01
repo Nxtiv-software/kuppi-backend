@@ -17,6 +17,14 @@ export const getSessionRequests = async (req: Request, res: Response) => {
     const tutorId = (req as AuthenticatedRequest).auth?.userId || req.params.tutorId || 'temp_tutor_id';
 
     console.log('Getting session requests for tutor:', tutorId);
+    
+    // 🔍 Debug: Check all polls first
+    const allPolls = await Poll.find({}).select('title voteCount targetVotes votes status acceptedBy');
+    console.log('🔍 DEBUG: All polls in database:');
+    allPolls.forEach(poll => {
+      const votePercentage = poll.targetVotes ? (poll.votes.length / poll.targetVotes) * 100 : 0;
+      console.log(`  - ${poll.title}: ${poll.votes.length}/${poll.targetVotes} votes (${votePercentage.toFixed(1)}%) - status: ${poll.status || 'active'}`);
+    });
 
     // Find polls with vote percentage > 50% that don't have sessions yet
     const polls = await Poll.aggregate([
@@ -94,7 +102,11 @@ export const getSessionRequests = async (req: Request, res: Response) => {
         title: poll.title,
         subject: poll.subject,
         topic: poll.chapter, // Using chapter as topic
+        chapter: poll.chapter, // Also include chapter field
         description: poll.description,
+        preferredDate: poll.preferredDate, // ✅ Include preferred date from poll
+        timeSlot: poll.timeSlot, // ✅ Include time slot from poll
+        maxStudents: poll.maxStudents, // ✅ Include max students from poll
         voteCount: poll.voteCount,
         totalVotes: poll.targetVotes,
         votePercentage: Math.round(poll.votePercentage),
@@ -114,6 +126,16 @@ export const getSessionRequests = async (req: Request, res: Response) => {
         }
       };
     });
+
+    console.log(`📊 Found ${sessionRequests.length} session requests`);
+    if (sessionRequests.length > 0) {
+      console.log('🔍 First session request sample:', {
+        title: sessionRequests[0].title,
+        preferredDate: sessionRequests[0].preferredDate,
+        timeSlot: sessionRequests[0].timeSlot,
+        maxStudents: sessionRequests[0].maxStudents
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -298,10 +320,14 @@ export const scheduleSession = async (req: Request, res: Response) => {
       title: poll.title,
       subject: poll.subject,
       voters: poll.votes,
-      voterCount: poll.votes?.length || 0
+      voterCount: poll.votes?.length || 0,
+      maxStudents: poll.maxStudents // Log the poll's maxStudents for debugging
     });
 
-    // Create the session
+    // Create the session - inherit maxStudents from poll, not from request body
+    const actualMaxStudents = poll.maxStudents || Number(maxStudents); // Use poll's maxStudents, fallback to request body
+    console.log(`📊 Setting session maxStudents: ${actualMaxStudents} (from poll: ${poll.maxStudents}, from request: ${maxStudents})`);
+    
     const session = new Session({
       pollId,
       tutorId,
@@ -315,7 +341,7 @@ export const scheduleSession = async (req: Request, res: Response) => {
       time,
       duration: Number(duration),
       feePerStudent: Number(feePerStudent),
-      maxStudents: Number(maxStudents),
+      maxStudents: actualMaxStudents, // ✅ Use poll's maxStudents instead of request body
       enrolledStudents: poll.votes || [], // Auto-enroll all voters
       status: 'upcoming', // Explicitly set status
       meetingLink,
