@@ -290,7 +290,13 @@ export class PollController {
       // Use Clerk authentication - get userId from req.auth
       const userId = (req as any).auth?.userId || req.user?.id || req.user?._id;
 
+      console.log('🗑️ ===== REMOVE VOTE DEBUG =====');
+      console.log('🗑️ Poll ID:', pollId);
+      console.log('🗑️ User ID:', userId);
+      console.log('🗑️ User ID type:', typeof userId);
+
       if (!mongoose.Types.ObjectId.isValid(pollId)) {
+        console.log('❌ Invalid poll ID');
         res.status(400).json({
           success: false,
           message: 'Invalid poll ID'
@@ -298,11 +304,12 @@ export class PollController {
         return;
       }
 
-      // Validate userId is a valid ObjectId for vote removal
-      if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      // Validate userId exists
+      if (!userId) {
+        console.log('❌ No user ID provided');
         res.status(400).json({
           success: false,
-          message: 'Invalid user ID for vote removal'
+          message: 'User ID is required for vote removal'
         });
         return;
       }
@@ -310,6 +317,7 @@ export class PollController {
       const poll = await Poll.findById(pollId);
       
       if (!poll) {
+        console.log('❌ Poll not found');
         res.status(404).json({
           success: false,
           message: 'Poll not found'
@@ -317,7 +325,12 @@ export class PollController {
         return;
       }
 
+      console.log('✅ Poll found:', poll.title);
+      console.log('📊 Current votes:', poll.votes);
+      console.log('📊 Poll status:', poll.status);
+
       if (poll.status !== 'active' && poll.status !== 'scheduled') {
+        console.log('❌ Poll not active or scheduled, status:', poll.status);
         res.status(400).json({
           success: false,
           message: 'Cannot remove vote from this poll'
@@ -325,10 +338,22 @@ export class PollController {
         return;
       }
 
-      // Handle ObjectId comparison properly
-      const userObjectId = new mongoose.Types.ObjectId(userId);
-      const voteIndex = poll.votes.findIndex(voteId => voteId.toString() === userObjectId.toString());
+      // Handle both ObjectId and string user IDs for vote comparison
+      const voteIndex = poll.votes.findIndex(voteId => {
+        const voteIdString = voteId.toString();
+        const userIdString = userId.toString();
+        console.log(`🔍 Comparing vote: "${voteIdString}" with user: "${userIdString}"`);
+        // Handle both ObjectId and string comparisons
+        if (mongoose.Types.ObjectId.isValid(userId) && mongoose.Types.ObjectId.isValid(voteId)) {
+          return voteId.toString() === new mongoose.Types.ObjectId(userId).toString();
+        }
+        // For string user IDs (like Clerk IDs), compare directly
+        return voteIdString === userIdString;
+      });
+
+      console.log('🔍 Vote index found:', voteIndex);
       if (voteIndex === -1) {
+        console.log('❌ User has not voted on this poll');
         res.status(400).json({
           success: false,
           message: 'You have not voted on this poll'
@@ -336,14 +361,19 @@ export class PollController {
         return;
       }
 
+      console.log('✅ Removing vote at index:', voteIndex);
       poll.votes.splice(voteIndex, 1);
+      console.log('✅ Vote removed. Remaining votes:', poll.votes.length);
       
       // If poll was scheduled but now has less than target votes, make it active again
       if ((poll.status as string) === 'scheduled' && poll.votes.length < poll.targetVotes) {
+        console.log('📊 Poll status changed from scheduled to active');
         poll.status = 'active';
       }
       
       await poll.save();
+      console.log('💾 Poll saved successfully');
+      console.log('🗑️ ===== REMOVE VOTE SUCCESS =====');
 
       res.json({
         success: true,
@@ -902,7 +932,7 @@ export class PollController {
         return;
       }
 
-      const hasVoted = poll.votes.some((vote: any) => vote._id.toString() === userId);
+      const hasVoted = poll.votes.some((voteId: any) => voteId.toString() === userId.toString());
 
       res.json({
         success: true,
