@@ -113,6 +113,19 @@ export const getSessionRequests = async (req: Request, res: Response) => {
         createdAt: poll.createdAt,
         voters: poll.votes || [],
         votersInfo: votersInfo, // Add detailed voter info
+        // Frontend expects 'creator' field
+        creator: creatorInfo ? {
+          id: creatorInfo.id,
+          name: creatorInfo.name,
+          email: creatorInfo.email,
+          firstName: creatorInfo.firstName,
+          lastName: creatorInfo.lastName
+        } : {
+          id: creatorId || 'unknown',
+          name: poll.creatorName || 'Unknown User',
+          email: 'Unknown email'
+        },
+        // Keep creatorInfo for backward compatibility
         creatorInfo: creatorInfo ? {
           id: creatorInfo.id,
           name: creatorInfo.name,
@@ -628,23 +641,50 @@ export const getAcceptedSessions = async (req: Request, res: Response) => {
       }
     }
 
+    // Get creator information for all polls
+    const userIds = new Set<string>();
+    pollsWithoutSessions.forEach(poll => {
+      if (poll.creator) userIds.add(poll.creator.toString());
+      if (poll.createdBy) userIds.add(poll.createdBy);
+    });
+
+    const usersMap = await userService.getUsersInfo(Array.from(userIds));
+
     // Format the response
-    const acceptedSessions = pollsWithoutSessions.map(poll => ({
-      _id: poll._id,
-      title: poll.title,
-      subject: poll.subject,
-      topic: poll.chapter,
-      description: poll.description,
-      voteCount: poll.votes.length,
-      totalVotes: poll.targetVotes,
-      votePercentage: poll.targetVotes > 0 ? Math.round((poll.votes.length / poll.targetVotes) * 100) : 0,
-      preferredDate: poll.preferredDate,
-      timeSlot: poll.timeSlot,
-      maxStudents: poll.maxStudents,
-      voters: poll.votes,
-      createdAt: poll.createdAt,
-      acceptedAt: poll.updatedAt
-    }));
+    const acceptedSessions = pollsWithoutSessions.map(poll => {
+      // Get creator information
+      const creatorId = poll.createdBy || poll.creator?.toString();
+      const creatorInfo = creatorId ? usersMap.get(creatorId) : null;
+
+      return {
+        _id: poll._id,
+        title: poll.title,
+        subject: poll.subject,
+        topic: poll.chapter,
+        description: poll.description,
+        voteCount: poll.votes.length,
+        totalVotes: poll.targetVotes,
+        votePercentage: poll.targetVotes > 0 ? Math.round((poll.votes.length / poll.targetVotes) * 100) : 0,
+        preferredDate: poll.preferredDate,
+        timeSlot: poll.timeSlot,
+        maxStudents: poll.maxStudents,
+        voters: poll.votes,
+        createdAt: poll.createdAt,
+        acceptedAt: poll.updatedAt,
+        // Add creator information for frontend
+        creator: creatorInfo ? {
+          id: creatorInfo.id,
+          name: creatorInfo.name,
+          email: creatorInfo.email,
+          firstName: creatorInfo.firstName,
+          lastName: creatorInfo.lastName
+        } : {
+          id: creatorId || 'unknown',
+          name: poll.creatorName || 'Unknown User',
+          email: 'Unknown email'
+        }
+      };
+    });
 
     res.status(200).json({
       success: true,
