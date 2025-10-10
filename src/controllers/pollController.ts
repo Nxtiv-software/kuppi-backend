@@ -659,7 +659,7 @@ export class PollController {
    */
   static async getAllPolls(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const { subject, status, date, page = 1, limit = 10 } = req.query;
+      const { subject, status, date, page = 1, limit = 10, includeScheduled = false } = req.query;
       // Use Clerk authentication - get userId from req.auth
       const userId = (req as any).auth?.userId || req.user?.id || req.user?._id;
       
@@ -671,6 +671,11 @@ export class PollController {
       
       if (status && status !== 'all') {
         query.status = status;
+      } else {
+        // By default, exclude scheduled polls unless explicitly requested
+        if (!includeScheduled || includeScheduled === 'false') {
+          query.status = { $ne: 'scheduled' };
+        }
       }
       
       if (date && date !== 'all') {
