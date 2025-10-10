@@ -11,7 +11,9 @@ import {
   addMeetingLink,
   addSessionAttachment,
   addSessionAnnouncement,
-  downloadAttachment
+  downloadAttachment,
+  getAvailableSessions,
+  joinSession
 } from '../controllers/sessionController';
 import { requireAuth, AuthenticatedRequest } from '../middlewares/clerkAuth';
 
@@ -53,6 +55,12 @@ router.get('/tutor-schedule', requireAuth, getMyScheduledSessions);
 
 // Get sessions for a student (polls they voted on) - protected route
 router.get('/my-sessions/:studentId?', requireAuth, getMySessionsAsStudent);
+
+// Get available sessions for browsing - protected route
+router.get('/available', requireAuth, getAvailableSessions);
+
+// Join a session - protected route
+router.post('/:sessionId/join', requireAuth, joinSession);
 
 // Session Resource Management - protected routes
 // Add meeting link to a session
