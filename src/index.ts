@@ -80,7 +80,7 @@ app.use('*', (req: Request, res: Response) => {
   res.status(404).json({
     success: false,
     message: `Route ${req.method} ${req.originalUrl} not found`,
-    availableRoutes: ['/auth', '/login', '/polls', '/sessions', '/health', '/api'] // Removed '/clerk'
+    availableRoutes: ['/auth', '/login', '/polls', '/sessions', '/health', '/api']
   });
 });
 
