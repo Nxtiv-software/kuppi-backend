@@ -480,7 +480,6 @@ export const getMyScheduledSessions = async (req: Request, res: Response) => {
 export const getMySessionsAsStudent = async (req: Request, res: Response) => {
   try {
     console.log('📚 getMySessionsAsStudent called');
-    console.log('📚 Auth object:', (req as AuthenticatedRequest).auth);
     
     // Get student ID from authenticated user or parameters for testing
     const studentIdParam = (req as AuthenticatedRequest).auth?.userId || 
@@ -492,83 +491,57 @@ export const getMySessionsAsStudent = async (req: Request, res: Response) => {
     const studentId = typeof studentIdParam === 'string' ? studentIdParam : String(studentIdParam);
 
     console.log('📚 Getting sessions for student:', studentId);
-    console.log('📚 Student ID source:', (req as AuthenticatedRequest).auth?.userId ? 'AUTH' : 'FALLBACK');
 
-    // For Clerk user IDs (which are strings), we need to handle them differently
-    // Clerk user IDs are not MongoDB ObjectIds, so we need to store them as strings in our polls
-    
-    // Step 1: Find polls that this student voted on
-    let pollsVotedOn: any[] = [];
-    
-    console.log('🔍 Looking for polls voted on by student:', studentId);
+    // Method 1: Find sessions where student is directly enrolled
+    const directlyEnrolledSessions = await Session.find({
+      enrolledStudents: { $in: [studentId] }
+    }).sort({ date: 1 });
+
+    console.log('📚 Found directly enrolled sessions:', directlyEnrolledSessions.length);
+
+    // Method 2: Find polls that this student voted on, then find sessions from those polls
+    let pollBasedSessions: any[] = [];
     
     // Look for polls where the student's ID is in the votes array
-    pollsVotedOn = await Poll.find({
+    const pollsVotedOn = await Poll.find({
       votes: { $in: [studentId] }
     }).select('_id title description subject chapter');
     
-    console.log('📊 Found polls (string approach):', pollsVotedOn.length);
+    console.log('📊 Found polls voted on:', pollsVotedOn.length);
     
-    // If no polls found with string comparison and it looks like an ObjectId, try ObjectId
-    if (pollsVotedOn.length === 0 && mongoose.Types.ObjectId.isValid(studentId)) {
-      try {
-        const objectId = new mongoose.Types.ObjectId(studentId);
-        pollsVotedOn = await Poll.find({
-          votes: objectId
-        }).select('_id title description subject chapter');
-        
-        console.log('📊 Found polls (ObjectId approach):', pollsVotedOn.length);
-      } catch (err) {
-        console.log('❌ ObjectId conversion failed:', err);
-      }
-    }
-
-    // Step 2: Find sessions created from these polls
-    let sessions: any[] = [];
     if (pollsVotedOn.length > 0) {
-      // Convert ObjectIds to strings for comparison
-      const pollIds = pollsVotedOn.map(poll => poll._id.toString());
+      const pollIds = pollsVotedOn.map((poll: any) => poll._id.toString());
       
-      console.log('🔍 Looking for sessions with poll IDs (as strings):', pollIds);
-      
-      // First, let's try to find ANY sessions to see what's in the database
-      const allSessions = await Session.find({});
-      console.log('📋 All sessions in database:', allSessions.length);
-      allSessions.forEach(session => {
-        console.log(`📋 Session ${session._id}: pollId=${session.pollId}, status=${session.status}`);
-      });
-      
-      // Find sessions using string poll IDs
-      sessions = await Session.find({
+      pollBasedSessions = await Session.find({
         pollId: { $in: pollIds }
-        // Remove status filter to find all sessions regardless of status
-      })
-      .sort({ createdAt: -1 });
+      }).sort({ date: 1 });
       
-      console.log('📚 Found sessions with string pollId filter:', sessions.length);
-      
-      // If we found sessions, populate the poll data manually
-      if (sessions.length > 0) {
-        for (let session of sessions) {
-          const poll = pollsVotedOn.find(p => p._id.toString() === session.pollId);
-          if (poll) {
-            session = { ...session.toObject(), pollData: poll };
-          }
-        }
-      }
-      
-      // Log session details for debugging
-      sessions.forEach(session => {
-        console.log(`📚 Session: ${session._id}, Status: ${session.status}, PollId: ${session.pollId}`);
-      });
+      console.log('� Found poll-based sessions:', pollBasedSessions.length);
     }
 
-    console.log('Total sessions found for student:', sessions.length);
+    // Combine and deduplicate sessions
+    const allSessionsMap = new Map();
+    
+    // Add directly enrolled sessions
+    directlyEnrolledSessions.forEach((session: any) => {
+      allSessionsMap.set(session._id.toString(), session);
+    });
+    
+    // Add poll-based sessions (this will overwrite if already present, which is fine)
+    pollBasedSessions.forEach(session => {
+      allSessionsMap.set(session._id.toString(), session);
+    });
+
+    const sessions = Array.from(allSessionsMap.values()).sort((a: any, b: any) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
+    console.log('📚 Total unique sessions found for student:', sessions.length);
 
     // Format sessions for student dashboard
-    const formattedSessions = await Promise.all(sessions.map(async (session) => {
-      // Use pollData if available (manually populated), otherwise try pollId
-      const pollDetails = session.pollData || session.pollId;
+    const formattedSessions = await Promise.all(sessions.map(async (session: any) => {
+      // Get poll details if available
+      const poll = pollsVotedOn.find((p: any) => p._id.toString() === session.pollId);
       
       // Get tutor information from Clerk
       const tutorInfo = await userService.getUserInfo(session.tutorId.toString());
@@ -588,8 +561,8 @@ export const getMySessionsAsStudent = async (req: Request, res: Response) => {
         status: session.status,
         meetingLink: session.meetingLink,
         materials: session.materials,
-        attachments: session.attachments || [], // Include attachments
-        announcements: session.announcements || [], // Include announcements
+        attachments: session.attachments || [],
+        announcements: session.announcements || [],
         notes: session.notes,
         // Clean tutor information without exposing raw IDs
         tutorName: tutorInfo?.name || session.tutorName || 'Anonymous Tutor',
@@ -606,11 +579,11 @@ export const getMySessionsAsStudent = async (req: Request, res: Response) => {
         },
         createdAt: session.createdAt,
         updatedAt: session.updatedAt,
-        pollDetails: pollDetails ? {
-          title: pollDetails.title,
-          description: pollDetails.description,
-          subject: pollDetails.subject,
-          chapter: pollDetails.chapter
+        pollDetails: poll ? {
+          title: poll.title,
+          description: poll.description,
+          subject: poll.subject,
+          chapter: poll.chapter
         } : null
       };
     }));
@@ -1004,6 +977,219 @@ export const downloadAttachment = async (req: Request, res: Response) => {
       success: false,
       message: 'Failed to download attachment',
       error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get available sessions for browsing (scheduled sessions with available spots)
+export const getAvailableSessions = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthenticatedRequest).auth?.userId;
+    const { subject, level, page = 1, limit = 10 } = req.query;
+
+    console.log('📡 Fetching available sessions for browsing...');
+
+    let query: any = {
+      status: 'upcoming',
+      date: { $gte: new Date() } // Only future sessions
+    };
+
+    // Add subject filter if specified
+    if (subject && subject !== 'all') {
+      query.subject = subject;
+    }
+
+    const pageNum = parseInt(page.toString());
+    const limitNum = parseInt(limit.toString());
+    const skip = (pageNum - 1) * limitNum;
+
+    // Get sessions that still have available spots
+    const sessions = await Session.aggregate([
+      {
+        $match: query
+      },
+      {
+        $addFields: {
+          enrolledCount: { $size: '$enrolledStudents' },
+          availableSpots: { $subtract: ['$maxStudents', { $size: '$enrolledStudents' }] },
+          isFullyBooked: { $gte: [{ $size: '$enrolledStudents' }, '$maxStudents'] }
+        }
+      },
+      {
+        $match: {
+          isFullyBooked: false // Only sessions with available spots
+        }
+      },
+      {
+        $lookup: {
+          from: 'polls',
+          localField: 'pollId',
+          foreignField: '_id',
+          as: 'poll'
+        }
+      },
+      {
+        $sort: { date: 1, createdAt: -1 }
+      },
+      {
+        $skip: skip
+      },
+      {
+        $limit: limitNum
+      }
+    ]);
+
+    const total = await Session.countDocuments({
+      ...query,
+      $expr: { $lt: [{ $size: '$enrolledStudents' }, '$maxStudents'] }
+    });
+
+    // Get user information for tutors
+    const tutorIds = sessions.map(session => session.tutorId).filter(id => id);
+    const tutorsMap = await userService.getUsersInfo(tutorIds);
+
+    // Format the response
+    const formattedSessions = sessions.map(session => {
+      const tutorInfo = tutorsMap.get(session.tutorId);
+      const poll = session.poll?.[0];
+      
+      // Check if current user is already enrolled
+      const isEnrolled = userId && session.enrolledStudents.some((studentId: any) => 
+        studentId.toString() === userId.toString()
+      );
+
+      return {
+        id: session._id,
+        title: session.title,
+        subject: session.subject,
+        topic: session.topic,
+        description: session.description,
+        instructor: tutorInfo?.name || session.tutorName || 'Unknown Tutor',
+        tutorId: session.tutorId,
+        date: session.date,
+        time: session.time,
+        duration: session.duration,
+        price: session.feePerStudent,
+        enrolled: session.enrolledCount,
+        maxStudents: session.maxStudents,
+        availableSpots: session.availableSpots,
+        status: session.status,
+        isEnrolled,
+        pollId: session.pollId,
+        // Add some mock data for UI consistency
+        rating: 4.5 + Math.random() * 0.5,
+        reviews: Math.floor(Math.random() * 200) + 50,
+        level: poll?.targetVotes > 15 ? 'advanced' : poll?.targetVotes > 10 ? 'intermediate' : 'beginner',
+        tags: [session.topic, session.subject.replace('-', ' ')],
+        createdAt: session.createdAt
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        sessions: formattedSessions,
+        pagination: {
+          current: pageNum,
+          pages: Math.ceil(total / limitNum),
+          total,
+          limit: limitNum
+        }
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error fetching available sessions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch available sessions',
+      error: error.message
+    });
+  }
+};
+
+// Join a session (enroll in a scheduled session)
+export const joinSession = async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = (req as AuthenticatedRequest).auth?.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
+    console.log(`📝 User ${userId} attempting to join session ${sessionId}`);
+
+    // Find the session
+    const session = await Session.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    // Check if session is upcoming
+    if (session.status !== 'upcoming') {
+      return res.status(400).json({
+        success: false,
+        message: 'Session is not available for enrollment'
+      });
+    }
+
+    // Check if session is in the future
+    if (new Date(session.date) <= new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot join past sessions'
+      });
+    }
+
+    // Check if user is already enrolled
+    const isAlreadyEnrolled = session.enrolledStudents.some((studentId: any) => 
+      studentId.toString() === userId.toString()
+    );
+
+    if (isAlreadyEnrolled) {
+      return res.status(400).json({
+        success: false,
+        message: 'You are already enrolled in this session'
+      });
+    }
+
+    // Check if session has available spots
+    if (session.enrolledStudents.length >= session.maxStudents) {
+      return res.status(400).json({
+        success: false,
+        message: 'Session is fully booked'
+      });
+    }
+
+    // Add user to enrolled students
+    session.enrolledStudents.push(userId);
+    await session.save();
+
+    console.log(`✅ User ${userId} successfully joined session ${sessionId}`);
+
+    res.json({
+      success: true,
+      message: 'Successfully joined the session',
+      data: {
+        sessionId: session._id,
+        enrolledCount: session.enrolledStudents.length,
+        availableSpots: session.maxStudents - session.enrolledStudents.length
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error joining session:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to join session',
+      error: error.message
     });
   }
 };
