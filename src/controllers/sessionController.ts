@@ -1226,17 +1226,21 @@ export const joinSession = async (req: Request, res: Response) => {
     // Find the session
     const session = await Session.findById(sessionId);
     if (!session) {
+      console.log(`❌ Session ${sessionId} not found`);
       return res.status(404).json({
         success: false,
         message: 'Session not found'
       });
     }
 
-    // Check if session is upcoming
-    if (session.status !== 'upcoming') {
+    console.log(`📋 Session found: ${session.title}, status: ${session.status}, enrolled: ${session.enrolledStudents.length}/${session.maxStudents}`);
+
+    // Check if session is available for enrollment
+    if (session.status !== 'upcoming' && session.status !== 'scheduled') {
+      console.log(`❌ Session ${sessionId} is not available for enrollment (status: ${session.status})`);
       return res.status(400).json({
         success: false,
-        message: 'Session is not available for enrollment'
+        message: `Session is not available for enrollment (current status: ${session.status})`
       });
     }
 
@@ -1253,7 +1257,10 @@ export const joinSession = async (req: Request, res: Response) => {
       studentId.toString() === userId.toString()
     );
 
+    console.log(`🔍 Checking if user ${userId} is already enrolled: ${isAlreadyEnrolled}`);
+
     if (isAlreadyEnrolled) {
+      console.log(`❌ User ${userId} is already enrolled in session ${sessionId}`);
       return res.status(400).json({
         success: false,
         message: 'You are already enrolled in this session'
