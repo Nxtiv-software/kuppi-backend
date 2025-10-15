@@ -1030,8 +1030,11 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
     console.log('📡 Fetching available sessions for browsing...');
 
     let query: any = {
-      status: 'upcoming',
-      date: { $gte: new Date() } // Only future sessions
+      $or: [
+        { status: 'upcoming', date: { $gte: new Date() } }, // Poll-based scheduled sessions
+        { status: 'open_for_interest' }, // Tutor-created sessions open for interest
+        { status: 'scheduled', date: { $gte: new Date() } } // Scheduled sessions not yet completed
+      ]
     };
 
     // Add subject filter if specified
@@ -1093,8 +1096,15 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
       const tutorInfo = tutorsMap.get(session.tutorId);
       const poll = session.poll?.[0];
       
-      // Check if current user is already enrolled
+      // Determine session source
+      const source = session.pollId ? 'poll_based' : 'tutor_created';
+      
+      // Check if current user is already enrolled or has shown interest
       const isEnrolled = userId && session.enrolledStudents.some((studentId: any) => 
+        studentId.toString() === userId.toString()
+      );
+      
+      const hasShownInterest = userId && session.interestedStudents?.some((studentId: any) => 
         studentId.toString() === userId.toString()
       );
 
@@ -1114,7 +1124,11 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
         maxStudents: session.maxStudents,
         availableSpots: session.availableSpots,
         status: session.status,
+        source, // 'poll_based' or 'tutor_created'
         isEnrolled,
+        hasShownInterest,
+        interestedStudents: session.interestedStudents || [],
+        minStudents: session.minStudents || 1,
         pollId: session.pollId,
         // Add some mock data for UI consistency
         rating: 4.5 + Math.random() * 0.5,
@@ -1180,8 +1194,8 @@ export const joinSession = async (req: Request, res: Response) => {
       });
     }
 
-    // Check if session is in the future
-    if (new Date(session.date) <= new Date()) {
+    // Check if session is in the future (only for scheduled sessions)
+    if (session.date && new Date(session.date) <= new Date()) {
       return res.status(400).json({
         success: false,
         message: 'Cannot join past sessions'
@@ -1229,6 +1243,379 @@ export const joinSession = async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to join session',
+      error: error.message
+    });
+  }
+};
+
+// Create a new session by tutor
+export const createTutorSession = async (req: Request, res: Response) => {
+  try {
+    const tutorId = (req as AuthenticatedRequest).auth?.userId;
+    
+    if (!tutorId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    const {
+      title,
+      subject,
+      topic,
+      description,
+      duration,
+      feePerStudent,
+      maxStudents,
+      minStudents,
+      schedulingNote,
+      tutorName,
+      tutorEmail
+    } = req.body;
+
+    console.log('🚀 Creating tutor session with data:', { 
+      title, 
+      subject, 
+      topic, 
+      tutorId, 
+      tutorEmail,
+      feePerStudent,
+      maxStudents,
+      minStudents 
+    });
+
+    // Validation
+    if (!title || !subject || !topic || !description || !feePerStudent) {
+      console.log('❌ Validation failed - missing required fields');
+      return res.status(400).json({
+        success: false,
+        message: 'Required fields missing: title, subject, topic, description, feePerStudent'
+      });
+    }
+
+    if (maxStudents < 1 || (minStudents && minStudents < 1)) {
+      console.log('❌ Validation failed - invalid student limits');
+      return res.status(400).json({
+        success: false,
+        message: 'Student limits must be positive numbers'
+      });
+    }
+
+    // Create session
+    const sessionData = {
+      title,
+      subject,
+      topic,
+      description,
+      duration: parseFloat(duration) || 2,
+      feePerStudent: parseFloat(feePerStudent),
+      maxStudents: parseInt(maxStudents) || 20,
+      minStudents: parseInt(minStudents) || 1,
+      tutorId,
+      tutorName: tutorName || 'Anonymous Tutor',
+      tutorEmail: tutorEmail || '',
+      status: 'open_for_interest',
+      interestedStudents: [],
+      enrolledStudents: [],
+      schedulingNote,
+      createdAt: new Date(),
+      isScheduled: false,
+      source: 'tutor_created' // Mark as tutor-created vs poll-based
+    };
+
+    console.log('📝 Creating session with processed data:', sessionData);
+
+    const session = new Session(sessionData);
+    await session.save();
+
+    console.log(`✅ Tutor session created successfully: ${session._id}`);
+
+    res.status(201).json({
+      success: true,
+      message: 'Session created successfully',
+      data: session
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error creating tutor session:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create session',
+      error: error.message
+    });
+  }
+};
+
+// Get tutor's created sessions
+export const getTutorCreatedSessions = async (req: Request, res: Response) => {
+  try {
+    const tutorId = (req as AuthenticatedRequest).auth?.userId;
+    
+    if (!tutorId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    console.log('Fetching created sessions for tutor:', tutorId);
+
+    // Find sessions created by this tutor
+    const sessions = await Session.find({
+      tutorId,
+      source: 'tutor_created' // Only tutor-created sessions, not poll-based
+    })
+    .sort({ createdAt: -1 }) // Most recent first
+    .lean();
+
+    console.log(`Found ${sessions.length} tutor-created sessions`);
+
+    res.json({
+      success: true,
+      data: sessions
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error fetching tutor created sessions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch created sessions',
+      error: error.message
+    });
+  }
+};
+
+// Show interest in a tutor-created session
+export const showInterestInSession = async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = (req as AuthenticatedRequest).auth?.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication required'
+      });
+    }
+
+    console.log(`👋 User ${userId} showing interest in session ${sessionId}`);
+
+    // Find the session
+    const session = await Session.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    // Check if session is open for interest
+    if (session.status !== 'open_for_interest') {
+      return res.status(400).json({
+        success: false,
+        message: 'Session is not open for interest'
+      });
+    }
+
+    // Check if user already showed interest
+    const hasAlreadyShownInterest = session.interestedStudents?.some((studentId: any) => 
+      studentId.toString() === userId.toString()
+    );
+
+    if (hasAlreadyShownInterest) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have already shown interest in this session'
+      });
+    }
+
+    // Add user to interested students
+    if (!session.interestedStudents) {
+      session.interestedStudents = [];
+    }
+    session.interestedStudents.push(userId);
+
+    // Check if minimum interest threshold is met
+    const interestedCount = session.interestedStudents.length;
+    const minStudents = session.minStudents || 1;
+
+    if (interestedCount >= minStudents && session.status === 'open_for_interest') {
+      session.status = 'ready_to_schedule';
+      console.log(`✅ Session ${sessionId} is now ready to schedule (${interestedCount}/${minStudents} interested)`);
+    }
+
+    await session.save();
+
+    console.log(`✅ User ${userId} successfully showed interest in session ${sessionId}`);
+
+    res.json({
+      success: true,
+      message: 'Successfully showed interest in the session',
+      data: {
+        sessionId: session._id,
+        interestedCount: session.interestedStudents.length,
+        minStudents: session.minStudents,
+        status: session.status,
+        readyToSchedule: session.status === 'ready_to_schedule'
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error showing interest in session:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to show interest in session',
+      error: error.message
+    });
+  }
+};
+
+// Schedule a tutor-created session when ready
+export const scheduleTutorSession = async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+    const tutorId = (req as AuthenticatedRequest).auth?.userId;
+    const { date, time } = req.body;
+
+    if (!tutorId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    if (!date || !time) {
+      return res.status(400).json({
+        success: false,
+        message: 'Date and time are required'
+      });
+    }
+
+    console.log(`📅 Tutor ${tutorId} scheduling session ${sessionId}`);
+
+    // Find the session
+    const session = await Session.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    // Verify tutor owns this session
+    if (session.tutorId.toString() !== tutorId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only schedule your own sessions'
+      });
+    }
+
+    // Check if session is ready to schedule
+    if (session.status !== 'ready_to_schedule') {
+      return res.status(400).json({
+        success: false,
+        message: 'Session is not ready to schedule. Need more interested students.'
+      });
+    }
+
+    // Update session with schedule
+    session.date = new Date(date);
+    session.time = time;
+    session.status = 'scheduled';
+    session.isScheduled = true;
+    
+    // Move interested students to enrolled students
+    if (session.interestedStudents && session.interestedStudents.length > 0) {
+      session.enrolledStudents = [...session.interestedStudents];
+    }
+
+    await session.save();
+
+    console.log(`✅ Session ${sessionId} scheduled successfully for ${date} at ${time}`);
+
+    res.json({
+      success: true,
+      message: 'Session scheduled successfully',
+      data: {
+        sessionId: session._id,
+        date: session.date,
+        time: session.time,
+        status: session.status,
+        enrolledStudents: session.enrolledStudents.length
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error scheduling tutor session:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to schedule session',
+      error: error.message
+    });
+  }
+};
+
+// Mark session as completed
+export const markSessionCompleted = async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+    const tutorId = (req as AuthenticatedRequest).auth?.userId;
+
+    if (!tutorId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    console.log(`✅ Tutor ${tutorId} marking session ${sessionId} as completed`);
+
+    // Find the session
+    const session = await Session.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    // Verify tutor owns this session
+    if (session.tutorId.toString() !== tutorId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only complete your own sessions'
+      });
+    }
+
+    // Check if session is scheduled/upcoming
+    if (session.status !== 'scheduled' && session.status !== 'upcoming') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only scheduled sessions can be marked as completed'
+      });
+    }
+
+    // Update session status
+    session.status = 'completed';
+    await session.save();
+
+    console.log(`✅ Session ${sessionId} marked as completed`);
+
+    res.json({
+      success: true,
+      message: 'Session marked as completed successfully',
+      data: {
+        sessionId: session._id,
+        status: session.status
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error marking session as completed:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark session as completed',
       error: error.message
     });
   }
