@@ -412,7 +412,10 @@ export const getMyScheduledSessions = async (req: Request, res: Response) => {
       (global as any)[lastLogKey] = now;
     }
 
-    const sessions = await Session.find({ tutorId })
+    const sessions = await Session.find({ 
+      tutorId,
+      status: { $ne: 'ready_to_schedule' } // Exclude ready_to_schedule sessions
+    })
       .sort({ date: 1 });
 
     // Only log count changes or first call
