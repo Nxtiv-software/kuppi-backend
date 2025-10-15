@@ -19,7 +19,7 @@ export interface IAnnouncement {
 }
 
 export interface ISession extends Document {
-  pollId: mongoose.Types.ObjectId | string;
+  pollId?: mongoose.Types.ObjectId | string; // Optional for tutor-created sessions
   tutorId: mongoose.Types.ObjectId | string;
   tutorName: string;
   tutorEmail: string;
@@ -27,20 +27,26 @@ export interface ISession extends Document {
   topic: string;
   title: string;
   description: string;
-  date: Date; // scheduledDate
-  time: string; // scheduledTime
+  date?: Date; // scheduledDate - optional until scheduled
+  time?: string; // scheduledTime - optional until scheduled
   duration: number; // in hours
+  fee?: number; // Optional for backward compatibility
   feePerStudent: number;
   maxStudents: number;
+  minStudents?: number; // For tutor-created sessions
   enrolledStudents: (mongoose.Types.ObjectId | string)[];
-  status: 'upcoming' | 'completed' | 'cancelled';
+  interestedStudents?: (mongoose.Types.ObjectId | string)[]; // For tutor-created sessions
+  status: 'upcoming' | 'completed' | 'cancelled' | 'open_for_interest' | 'ready_to_schedule' | 'scheduled';
   meetingLink?: string;
   materials?: string[];
   attachments?: IAttachment[];
   announcements?: IAnnouncement[];
   notes?: string;
+  schedulingNote?: string; // For tutor-created sessions
   rating?: number;
   reason?: string; // cancellation reason
+  source?: 'poll_based' | 'tutor_created'; // Track session origin
+  isScheduled?: boolean; // Explicit scheduling flag
   createdAt: Date;
   updatedAt: Date;
 }
@@ -50,8 +56,7 @@ const SessionSchema = new Schema<ISession>({
   pollId: {
     type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String
     ref: 'Poll',
-    required: true,
-    unique: true // One session per poll
+    required: false // Optional for tutor-created sessions
   },
   tutorId: {
     type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String
@@ -65,7 +70,7 @@ const SessionSchema = new Schema<ISession>({
   },
   tutorEmail: {
     type: String,
-    required: true,
+    required: false, // Make optional since we have tutorId for reference
     trim: true
   },
   subject: {
@@ -90,11 +95,11 @@ const SessionSchema = new Schema<ISession>({
   },
   date: {
     type: Date,
-    required: true
+    required: false // Optional until scheduled
   },
   time: {
     type: String,
-    required: true,
+    required: false, // Optional until scheduled
     trim: true
   },
   duration: {
@@ -102,6 +107,10 @@ const SessionSchema = new Schema<ISession>({
     required: true,
     min: 1, // minimum 1 hour
     max: 5 // maximum 5 hours
+  },
+  fee: {
+    type: Number,
+    min: 0 // For backward compatibility
   },
   feePerStudent: {
     type: Number,
@@ -113,10 +122,16 @@ const SessionSchema = new Schema<ISession>({
     required: true,
     min: 1
   },
+  minStudents: {
+    type: Number,
+    min: 1,
+    default: 1
+  },
   enrolledStudents: [Schema.Types.Mixed], // Allow both ObjectId and String user IDs
+  interestedStudents: [Schema.Types.Mixed], // For tutor-created sessions
   status: {
     type: String,
-    enum: ['upcoming', 'completed', 'cancelled'],
+    enum: ['upcoming', 'completed', 'cancelled', 'open_for_interest', 'ready_to_schedule', 'scheduled'],
     default: 'upcoming'
   },
   meetingLink: {
@@ -171,6 +186,10 @@ const SessionSchema = new Schema<ISession>({
     type: String,
     trim: true
   },
+  schedulingNote: {
+    type: String,
+    trim: true
+  },
   rating: {
     type: Number,
     min: 1,
@@ -179,6 +198,15 @@ const SessionSchema = new Schema<ISession>({
   reason: {
     type: String,
     trim: true
+  },
+  source: {
+    type: String,
+    enum: ['poll_based', 'tutor_created'],
+    default: 'poll_based'
+  },
+  isScheduled: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true
@@ -188,5 +216,7 @@ const SessionSchema = new Schema<ISession>({
 SessionSchema.index({ tutorId: 1, status: 1 });
 SessionSchema.index({ date: 1, status: 1 });
 SessionSchema.index({ enrolledStudents: 1 });
+// Sparse unique index for pollId - allows multiple null values but ensures uniqueness for non-null values
+SessionSchema.index({ pollId: 1 }, { unique: true, sparse: true });
 
 export default mongoose.model<ISession>('Session', SessionSchema);
