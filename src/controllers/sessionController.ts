@@ -1414,19 +1414,54 @@ export const getTutorCreatedSessions = async (req: Request, res: Response) => {
 
     console.log('Fetching created sessions for tutor:', tutorId);
 
-    // Find sessions created by this tutor
+    // Find sessions created by this tutor, excluding completed sessions
     const sessions = await Session.find({
       tutorId,
-      source: 'tutor_created' // Only tutor-created sessions, not poll-based
+      source: 'tutor_created', // Only tutor-created sessions, not poll-based
+      status: { $ne: 'completed' } // Exclude completed sessions
     })
-    .sort({ createdAt: -1 }) // Most recent first
     .lean();
 
-    console.log(`Found ${sessions.length} tutor-created sessions`);
+    console.log(`Found ${sessions.length} active tutor-created sessions (excluding completed)`);
+
+    // Sort sessions by priority:
+    // 1. ready_to_schedule (highest priority)
+    // 2. scheduled (with upcoming dates first)
+    // 3. open_for_interest (newest first)
+    const sortedSessions = sessions.sort((a, b) => {
+      // Define status priority
+      const statusPriority: Record<string, number> = {
+        'ready_to_schedule': 1,
+        'scheduled': 2,
+        'open_for_interest': 3
+      };
+
+      const aPriority = statusPriority[a.status] || 4;
+      const bPriority = statusPriority[b.status] || 4;
+
+      // If different status priorities, sort by priority
+      if (aPriority !== bPriority) {
+        return aPriority - bPriority;
+      }
+
+      // If same status, apply secondary sorting
+      if (a.status === 'scheduled' && b.status === 'scheduled') {
+        // For scheduled sessions, sort by date (upcoming first)
+        if (a.date && b.date) {
+          return new Date(a.date).getTime() - new Date(b.date).getTime();
+        }
+        // If one has date and other doesn't, prioritize the one with date
+        if (a.date && !b.date) return -1;
+        if (!a.date && b.date) return 1;
+      }
+
+      // For same status or no specific sorting, sort by creation time (newest first)
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 
     res.json({
       success: true,
-      data: sessions
+      data: sortedSessions
     });
 
   } catch (error: any) {
