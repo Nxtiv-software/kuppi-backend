@@ -13,7 +13,12 @@ import {
   addSessionAnnouncement,
   downloadAttachment,
   getAvailableSessions,
-  joinSession
+  joinSession,
+  createTutorSession,
+  getTutorCreatedSessions,
+  showInterestInSession,
+  scheduleTutorSession,
+  markSessionCompleted
 } from '../controllers/sessionController';
 import { requireAuth, AuthenticatedRequest } from '../middlewares/clerkAuth';
 
@@ -61,6 +66,21 @@ router.get('/available', requireAuth, getAvailableSessions);
 
 // Join a session - protected route
 router.post('/:sessionId/join', requireAuth, joinSession);
+
+// Create a new session by tutor - protected route
+router.post('/create', requireAuth, createTutorSession);
+
+// Get tutor's created sessions - protected route
+router.get('/tutor/created', requireAuth, getTutorCreatedSessions);
+
+// Show interest in a tutor-created session - protected route
+router.post('/:sessionId/interest', requireAuth, showInterestInSession);
+
+// Schedule a tutor-created session when ready - protected route
+router.post('/:sessionId/schedule-tutor', requireAuth, scheduleTutorSession);
+
+// Mark session as completed - protected route
+router.post('/:sessionId/complete', requireAuth, markSessionCompleted);
 
 // Session Resource Management - protected routes
 // Add meeting link to a session
