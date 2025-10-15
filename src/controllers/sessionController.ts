@@ -529,8 +529,17 @@ export const getMySessionsAsStudent = async (req: Request, res: Response) => {
         pollId: { $in: pollIds }
       }).sort({ date: 1 });
       
-      console.log('� Found poll-based sessions:', pollBasedSessions.length);
+      console.log('🗳️ Found poll-based sessions:', pollBasedSessions.length);
     }
+
+    // Method 3: Find tutor-created sessions where student showed interest and session got scheduled
+    const interestedScheduledSessions = await Session.find({
+      interestedStudents: { $in: [studentId] },
+      status: { $in: ['scheduled', 'completed'] },
+      pollId: { $exists: false } // Only tutor-created sessions
+    }).sort({ date: 1 });
+    
+    console.log('🎯 Found interested scheduled sessions:', interestedScheduledSessions.length);
 
     // Combine and deduplicate sessions
     const allSessionsMap = new Map();
@@ -542,6 +551,11 @@ export const getMySessionsAsStudent = async (req: Request, res: Response) => {
     
     // Add poll-based sessions (this will overwrite if already present, which is fine)
     pollBasedSessions.forEach(session => {
+      allSessionsMap.set(session._id.toString(), session);
+    });
+
+    // Add interested scheduled sessions
+    interestedScheduledSessions.forEach((session: any) => {
       allSessionsMap.set(session._id.toString(), session);
     });
 
@@ -1033,9 +1047,31 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
       $or: [
         { status: 'upcoming', date: { $gte: new Date() } }, // Poll-based scheduled sessions
         { status: 'open_for_interest' }, // Tutor-created sessions open for interest
+        { status: 'ready_to_schedule' }, // Tutor-created sessions ready to schedule but still accepting interest
         { status: 'scheduled', date: { $gte: new Date() } } // Scheduled sessions not yet completed
       ]
     };
+
+    // If user is authenticated, we'll filter sessions based on their participation
+    const userParticipationFilter = userId ? {
+      $and: [
+        // Don't show sessions where user is already enrolled
+        { enrolledStudents: { $ne: userId } },
+        // For scheduled tutor-created sessions, don't show if user showed interest (they'll see it in My Sessions)
+        {
+          $or: [
+            { status: { $ne: 'scheduled' } }, // Show all non-scheduled sessions
+            { interestedStudents: { $not: { $in: [userId] } } }, // Or scheduled sessions where user didn't show interest
+            { pollId: { $exists: true } } // Or poll-based sessions (different logic)
+          ]
+        }
+      ]
+    } : {};
+
+    // Combine the base query with user participation filter
+    if (userId) {
+      query = { $and: [query, userParticipationFilter] };
+    }
 
     // Add subject filter if specified
     if (subject && subject !== 'all') {
@@ -1114,15 +1150,15 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
         subject: session.subject,
         topic: session.topic,
         description: session.description,
-        instructor: tutorInfo?.name || session.tutorName || 'Unknown Tutor',
+        instructor: tutorInfo?.name || session.tutorName || 'Smart Tutor',
         tutorId: session.tutorId,
         date: session.date,
         time: session.time,
         duration: session.duration,
         price: session.feePerStudent,
-        enrolled: session.enrolledCount,
+        enrolled: session.enrolledCount || session.enrolledStudents?.length || 0,
         maxStudents: session.maxStudents,
-        availableSpots: session.availableSpots,
+        availableSpots: Math.max(0, session.maxStudents - (session.enrolledStudents?.length || 0)),
         status: session.status,
         source, // 'poll_based' or 'tutor_created'
         isEnrolled,
@@ -1133,8 +1169,18 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
         // Add some mock data for UI consistency
         rating: 4.5 + Math.random() * 0.5,
         reviews: Math.floor(Math.random() * 200) + 50,
-        level: poll?.targetVotes > 15 ? 'advanced' : poll?.targetVotes > 10 ? 'intermediate' : 'beginner',
-        tags: [session.topic, session.subject.replace('-', ' ')],
+        level: poll?.targetVotes > 15 ? 'advanced' : 
+               poll?.targetVotes > 10 ? 'intermediate' : 
+               poll ? 'beginner' :
+               // For tutor-created sessions, determine level by maxStudents or use intermediate as default
+               session.maxStudents > 50 ? 'beginner' :
+               session.maxStudents > 20 ? 'intermediate' : 'advanced',
+        tags: [
+          session.topic, 
+          session.subject.replace('-', ' '),
+          source === 'tutor_created' ? 'Tutor Session' : 'Community Request',
+          session.maxStudents === 999 ? 'Unlimited' : `Max ${session.maxStudents}`
+        ].filter(Boolean),
         createdAt: session.createdAt
       };
     });
@@ -1392,29 +1438,43 @@ export const showInterestInSession = async (req: Request, res: Response) => {
     const { sessionId } = req.params;
     const userId = (req as AuthenticatedRequest).auth?.userId;
 
+    console.log(`👋 User ${userId} showing interest in session ${sessionId}`);
+
+    // Validate sessionId format
+    if (!mongoose.Types.ObjectId.isValid(sessionId)) {
+      console.log(`❌ Invalid sessionId format: ${sessionId}`);
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid session ID format'
+      });
+    }
+
     if (!userId) {
+      console.log(`❌ No userId found in request`);
       return res.status(401).json({
         success: false,
         message: 'User authentication required'
       });
     }
 
-    console.log(`👋 User ${userId} showing interest in session ${sessionId}`);
-
     // Find the session
     const session = await Session.findById(sessionId);
     if (!session) {
+      console.log(`❌ Session ${sessionId} not found`);
       return res.status(404).json({
         success: false,
         message: 'Session not found'
       });
     }
 
+    console.log(`📋 Session found: ${session.title}, status: ${session.status}, current interested: ${session.interestedStudents?.length || 0}`);
+
     // Check if session is open for interest
-    if (session.status !== 'open_for_interest') {
+    if (session.status !== 'open_for_interest' && session.status !== 'ready_to_schedule') {
+      console.log(`❌ Session ${sessionId} is not accepting interest (status: ${session.status})`);
       return res.status(400).json({
         success: false,
-        message: 'Session is not open for interest'
+        message: `Session is not accepting interest (current status: ${session.status})`
       });
     }
 
@@ -1423,7 +1483,11 @@ export const showInterestInSession = async (req: Request, res: Response) => {
       studentId.toString() === userId.toString()
     );
 
+    console.log(`🔍 Checking if user ${userId} already showed interest: ${hasAlreadyShownInterest}`);
+    console.log(`📊 Current interested students: ${JSON.stringify(session.interestedStudents)}`);
+
     if (hasAlreadyShownInterest) {
+      console.log(`❌ User ${userId} has already shown interest in session ${sessionId}`);
       return res.status(400).json({
         success: false,
         message: 'You have already shown interest in this session'
@@ -1439,10 +1503,17 @@ export const showInterestInSession = async (req: Request, res: Response) => {
     // Check if minimum interest threshold is met
     const interestedCount = session.interestedStudents.length;
     const minStudents = session.minStudents || 1;
+    const maxStudents = session.maxStudents || 20;
 
-    if (interestedCount >= minStudents && session.status === 'open_for_interest') {
+    // For unlimited sessions (high maxStudents like 999), keep status as open_for_interest
+    // Only change to ready_to_schedule for limited sessions when minimum is met
+    const isUnlimitedSession = maxStudents >= 100; // Consider sessions with 100+ max as unlimited
+    
+    if (interestedCount >= minStudents && session.status === 'open_for_interest' && !isUnlimitedSession) {
       session.status = 'ready_to_schedule';
       console.log(`✅ Session ${sessionId} is now ready to schedule (${interestedCount}/${minStudents} interested)`);
+    } else if (isUnlimitedSession) {
+      console.log(`📢 Unlimited session ${sessionId} staying open for interest (${interestedCount} students interested)`);
     }
 
     await session.save();
