@@ -19,13 +19,26 @@ export class PollService {
   }
 
   /**
-   * Get polls with filtering and pagination
+   * Get polls with filtering and pagination (excluding trending polls with 70%+ votes)
    */
   static async getPolls(filters: any, pagination: any, userId: string) {
     const { subject, status, date } = filters;
     const { page = 1, limit = 10 } = pagination;
     
-    let query: any = {};
+    // First, get all polls matching the basic filters
+    const allPolls = await Poll.find().select('_id votes maxStudents');
+    
+    // Find IDs of polls with 70%+ votes (trending polls)
+    const trendingPollIds = allPolls
+      .filter(poll => {
+        const votePercentage = (poll.votes.length / poll.maxStudents) * 100;
+        return votePercentage >= 70;
+      })
+      .map(poll => poll._id);
+    
+    let query: any = {
+      _id: { $nin: trendingPollIds } // Exclude trending polls from regular polls
+    };
     
     if (subject && subject !== 'all') {
       query.subject = subject;
