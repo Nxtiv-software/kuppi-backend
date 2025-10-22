@@ -174,17 +174,11 @@ PollSchema.statics.getTrendingPolls = function(this: mongoose.Model<IPoll>) {
     {
       $lookup: {
         from: 'users',
-        let: { creatorId: '$creator' },
+        let: { creatorId: { $toString: '$creator' } },
         pipeline: [
           {
             $match: {
-              $expr: {
-                $cond: {
-                  if: { $eq: [{ $type: '$$creatorId' }, 'objectId'] },
-                  then: { $eq: ['$_id', '$$creatorId'] },
-                  else: { $eq: ['$_id', { $toObjectId: '$$creatorId' }] }
-                }
-              }
+              $expr: { $eq: [{ $toString: '$_id' }, '$$creatorId'] }
             }
           },
           { $project: { name: 1, email: 1 } }
