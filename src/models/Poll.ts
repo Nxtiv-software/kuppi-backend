@@ -137,13 +137,27 @@ PollSchema.methods.checkScheduling = function(this: IPoll) {
   return false;
 };
 
-// Static method to get trending polls (7 or more votes)
+// Static method to get trending polls (70% or more votes relative to maxStudents)
 PollSchema.statics.getTrendingPolls = function(this: mongoose.Model<IPoll>) {
   return this.aggregate([
     {
       $match: {
-        status: 'active',
-        $expr: { $gte: [{ $size: '$votes' }, 7] }
+        status: 'active'
+      }
+    },
+    {
+      $addFields: {
+        votePercentage: {
+          $multiply: [
+            { $divide: [{ $size: '$votes' }, '$maxStudents'] },
+            100
+          ]
+        }
+      }
+    },
+    {
+      $match: {
+        votePercentage: { $gte: 70 } // 70% or more votes
       }
     },
     {
