@@ -142,16 +142,27 @@ PollSchema.statics.getTrendingPolls = function(this: mongoose.Model<IPoll>) {
   return this.aggregate([
     {
       $match: {
-        status: 'active'
+        status: 'active',
+        maxStudents: { $gt: 0 } // Ensure maxStudents is greater than 0 to avoid division by zero
       }
     },
     {
       $addFields: {
+        voteCount: { $size: { $ifNull: ['$votes', []] } }, // Handle null votes array
         votePercentage: {
-          $multiply: [
-            { $divide: [{ $size: '$votes' }, '$maxStudents'] },
-            100
-          ]
+          $cond: {
+            if: { $and: [
+              { $gt: ['$maxStudents', 0] },
+              { $isArray: '$votes' }
+            ]},
+            then: {
+              $multiply: [
+                { $divide: [{ $size: '$votes' }, '$maxStudents'] },
+                100
+              ]
+            },
+            else: 0
+          }
         }
       }
     },
@@ -183,7 +194,6 @@ PollSchema.statics.getTrendingPolls = function(this: mongoose.Model<IPoll>) {
     },
     {
       $addFields: {
-        voteCount: { $size: '$votes' },
         creator: {
           $cond: {
             if: { $gt: [{ $size: '$creatorInfo' }, 0] },
