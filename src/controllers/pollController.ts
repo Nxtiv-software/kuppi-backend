@@ -663,7 +663,23 @@ export class PollController {
       // Use Clerk authentication - get userId from req.auth
       const userId = (req as any).auth?.userId || req.user?.id || req.user?._id;
       
-      let query: any = {};
+      // First, get all polls to identify trending ones (70%+ votes)
+      const allPolls = await Poll.find({ maxStudents: { $gt: 0 } }).select('_id votes maxStudents');
+      
+      // Find IDs of polls with 70%+ votes (trending polls) - these should be excluded
+      const trendingPollIds = allPolls
+        .filter(poll => {
+          if (!poll.maxStudents || poll.maxStudents === 0) return false;
+          const votePercentage = (poll.votes.length / poll.maxStudents) * 100;
+          return votePercentage >= 70;
+        })
+        .map(poll => poll._id);
+      
+      console.log(`📊 Found ${trendingPollIds.length} trending polls to exclude from filtered polls`);
+      
+      let query: any = {
+        _id: { $nin: trendingPollIds } // Exclude trending polls from regular polls
+      };
       
       if (subject && subject !== 'all') {
         query.subject = subject;
