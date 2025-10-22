@@ -25,16 +25,19 @@ export class PollService {
     const { subject, status, date } = filters;
     const { page = 1, limit = 10 } = pagination;
     
-    // First, get all polls matching the basic filters
-    const allPolls = await Poll.find().select('_id votes maxStudents');
+    // First, get all polls to identify trending ones (70%+ votes)
+    const allPolls = await Poll.find({ maxStudents: { $gt: 0 } }).select('_id votes maxStudents');
     
-    // Find IDs of polls with 70%+ votes (trending polls)
+    // Find IDs of polls with 70%+ votes (trending polls) - these should be excluded
     const trendingPollIds = allPolls
       .filter(poll => {
+        if (!poll.maxStudents || poll.maxStudents === 0) return false;
         const votePercentage = (poll.votes.length / poll.maxStudents) * 100;
         return votePercentage >= 70;
       })
       .map(poll => poll._id);
+    
+    console.log(`📊 Found ${trendingPollIds.length} trending polls to exclude from filtered polls`);
     
     let query: any = {
       _id: { $nin: trendingPollIds } // Exclude trending polls from regular polls
