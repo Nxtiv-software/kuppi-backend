@@ -535,14 +535,27 @@ export const getMySessionsAsStudent = async (req: Request, res: Response) => {
       console.log('🗳️ Found poll-based sessions:', pollBasedSessions.length);
     }
 
-    // Method 3: Find tutor-created sessions where student showed interest and session got scheduled
+    // Method 3: Find tutor-created sessions where student showed interest OR enrolled and session is scheduled
+    // Include unlimited sessions that are scheduled but still accepting enrollments (open_for_interest + isScheduled)
     const interestedScheduledSessions = await Session.find({
-      interestedStudents: { $in: [studentId] },
-      status: { $in: ['scheduled', 'completed'] },
-      pollId: { $exists: false } // Only tutor-created sessions
+      $and: [
+        {
+          $or: [
+            { interestedStudents: { $in: [studentId] } },
+            { enrolledStudents: { $in: [studentId] } }
+          ]
+        },
+        {
+          $or: [
+            { status: { $in: ['scheduled', 'upcoming', 'completed'] } }, // Include upcoming
+            { status: 'open_for_interest', isScheduled: true } // Unlimited scheduled sessions
+          ]
+        },
+        { pollId: { $exists: false } } // Only tutor-created sessions
+      ]
     }).sort({ date: 1 });
     
-    console.log('🎯 Found interested scheduled sessions:', interestedScheduledSessions.length);
+    console.log('🎯 Found interested/enrolled scheduled sessions:', interestedScheduledSessions.length);
 
     // Combine and deduplicate sessions
     const allSessionsMap = new Map();
@@ -1047,28 +1060,30 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
     console.log('📡 Fetching available sessions for browsing...');
 
     let query: any = {
-      $or: [
-        { status: 'upcoming', date: { $gte: new Date() } }, // Poll-based scheduled sessions
-        { status: 'open_for_interest' }, // Tutor-created sessions open for interest
-        { status: 'ready_to_schedule' }, // Tutor-created sessions ready to schedule but still accepting interest
-        { status: 'scheduled', date: { $gte: new Date() } } // Scheduled sessions not yet completed
-      ]
-    };
-
-    // If user is authenticated, we'll filter sessions based on their participation
-    const userParticipationFilter = userId ? {
       $and: [
-        // Don't show sessions where user is already enrolled
-        { enrolledStudents: { $ne: userId } },
-        // For scheduled tutor-created sessions, don't show if user showed interest (they'll see it in My Sessions)
+        // Exclude completed and cancelled sessions
+        { status: { $nin: ['completed', 'cancelled'] } },
+        // Include:
         {
           $or: [
-            { status: { $ne: 'scheduled' } }, // Show all non-scheduled sessions
-            { interestedStudents: { $not: { $in: [userId] } } }, // Or scheduled sessions where user didn't show interest
-            { pollId: { $exists: true } } // Or poll-based sessions (different logic)
+            { status: 'upcoming', date: { $gte: new Date() } }, // Poll-based scheduled sessions
+            { status: 'open_for_interest' }, // Tutor-created sessions open for interest (both scheduled and unscheduled)
+            { status: 'ready_to_schedule' }, // Tutor-created sessions ready to schedule
+            { status: 'scheduled', date: { $gte: new Date() } } // Limited sessions that are scheduled
           ]
         }
       ]
+    };
+
+    // If user is authenticated, filter based on participation
+    // For unlimited scheduled sessions (open_for_interest + isScheduled):
+    //   - Hide if user is already enrolled
+    //   - Keep showing if user showed interest but not yet enrolled (they can still enroll)
+    // For other sessions:
+    //   - Hide if user is enrolled OR showed interest in scheduled sessions
+    const userParticipationFilter = userId ? {
+      // Don't show sessions where user is already enrolled (applies to all sessions)
+      enrolledStudents: { $ne: userId }
     } : {};
 
     // Combine the base query with user participation filter
@@ -1239,8 +1254,14 @@ export const joinSession = async (req: Request, res: Response) => {
     console.log(`📋 Session found: ${session.title}, status: ${session.status}, enrolled: ${session.enrolledStudents.length}/${session.maxStudents}`);
 
     // Check if session is available for enrollment
-    if (session.status !== 'upcoming' && session.status !== 'scheduled') {
-      console.log(`❌ Session ${sessionId} is not available for enrollment (status: ${session.status})`);
+    // Allow enrollment for:
+    // 1. Scheduled sessions (upcoming, scheduled)
+    // 2. Scheduled unlimited sessions (open_for_interest with date/time set)
+    const isScheduledUnlimitedSession = session.status === 'open_for_interest' && session.isScheduled && session.date;
+    const isRegularScheduledSession = session.status === 'upcoming' || session.status === 'scheduled';
+    
+    if (!isRegularScheduledSession && !isScheduledUnlimitedSession) {
+      console.log(`❌ Session ${sessionId} is not available for enrollment (status: ${session.status}, scheduled: ${session.isScheduled})`);
       return res.status(400).json({
         success: false,
         message: `Session is not available for enrollment (current status: ${session.status})`
@@ -1550,15 +1571,13 @@ export const showInterestInSession = async (req: Request, res: Response) => {
     const minStudents = session.minStudents || 1;
     const maxStudents = session.maxStudents || 20;
 
-    // For unlimited sessions (high maxStudents like 999), keep status as open_for_interest
-    // Only change to ready_to_schedule for limited sessions when minimum is met
+    // Check if minimum interest is met (at least 1 student for unlimited, minStudents for limited)
     const isUnlimitedSession = maxStudents >= 100; // Consider sessions with 100+ max as unlimited
+    const hasMinimumInterest = isUnlimitedSession ? interestedCount >= 1 : interestedCount >= minStudents;
     
-    if (interestedCount >= minStudents && session.status === 'open_for_interest' && !isUnlimitedSession) {
+    if (hasMinimumInterest && session.status === 'open_for_interest') {
       session.status = 'ready_to_schedule';
-      console.log(`✅ Session ${sessionId} is now ready to schedule (${interestedCount}/${minStudents} interested)`);
-    } else if (isUnlimitedSession) {
-      console.log(`📢 Unlimited session ${sessionId} staying open for interest (${interestedCount} students interested)`);
+      console.log(`✅ Session ${sessionId} is now ready to schedule (${interestedCount}/${minStudents} interested, unlimited: ${isUnlimitedSession})`);
     }
 
     await session.save();
@@ -1628,23 +1647,37 @@ export const scheduleTutorSession = async (req: Request, res: Response) => {
     }
 
     // Check if session is ready to schedule
-    if (session.status !== 'ready_to_schedule') {
+    // Allow scheduling if: ready_to_schedule OR open_for_interest with at least 1 interested student
+    const hasInterestedStudents = session.interestedStudents && session.interestedStudents.length > 0;
+    const canSchedule = 
+      session.status === 'ready_to_schedule' || 
+      (session.status === 'open_for_interest' && hasInterestedStudents);
+
+    if (!canSchedule) {
       return res.status(400).json({
         success: false,
-        message: 'Session is not ready to schedule. Need more interested students.'
+        message: 'Session is not ready to schedule. Need at least one interested student.'
       });
     }
+
+    console.log(`✅ Session can be scheduled. Status: ${session.status}, Interested: ${session.interestedStudents?.length || 0}`);
+
+    // Check if this is an unlimited session
+    const isUnlimitedSession = session.maxStudents >= 100;
 
     // Update session with schedule
     session.date = new Date(date);
     session.time = time;
-    session.status = 'scheduled';
     session.isScheduled = true;
+    session.status = 'upcoming'; // Change to upcoming (not scheduled)
     
-    // Move interested students to enrolled students
+    // Move interested students to enrolled students (for both limited and unlimited)
     if (session.interestedStudents && session.interestedStudents.length > 0) {
       session.enrolledStudents = [...session.interestedStudents];
+      console.log(`✅ Moved ${session.interestedStudents.length} interested students to enrolled`);
     }
+    
+    console.log(`✅ Session scheduled: ${isUnlimitedSession ? 'Unlimited' : 'Limited'}, Enrolled: ${session.enrolledStudents.length}`);
 
     await session.save();
 
@@ -1658,7 +1691,8 @@ export const scheduleTutorSession = async (req: Request, res: Response) => {
         date: session.date,
         time: session.time,
         status: session.status,
-        enrolledStudents: session.enrolledStudents.length
+        enrolledStudents: session.enrolledStudents.length,
+        isUnlimited: isUnlimitedSession
       }
     });
 
