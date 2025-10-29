@@ -728,10 +728,34 @@ export class PollController {
       // Get all unique user IDs from polls
       const userIds = new Set<string>();
       polls.forEach(poll => {
-        if (poll.creator) userIds.add(poll.creator.toString());
-        if (poll.createdBy) userIds.add(poll.createdBy);
-        if (poll.acceptedBy) userIds.add(poll.acceptedBy.toString());
-        poll.votes.forEach((vote: any) => userIds.add(vote.toString()));
+        // Safely convert creator to string
+        if (poll.creator) {
+          const creatorId = typeof poll.creator === 'object' && poll.creator !== null ? poll.creator.toString() : poll.creator;
+          if (creatorId && typeof creatorId === 'string' && creatorId !== '[object Object]') {
+            userIds.add(creatorId);
+          }
+        }
+        if (poll.createdBy && typeof poll.createdBy === 'string' && poll.createdBy !== '[object Object]') {
+          userIds.add(poll.createdBy);
+        }
+        
+        // Safely convert acceptedBy to string
+        if (poll.acceptedBy) {
+          const acceptedById = typeof poll.acceptedBy === 'object' && poll.acceptedBy !== null ? poll.acceptedBy.toString() : poll.acceptedBy;
+          if (acceptedById && typeof acceptedById === 'string' && acceptedById !== '[object Object]') {
+            userIds.add(acceptedById);
+          }
+        }
+        
+        // Safely convert votes to strings
+        poll.votes.forEach((vote: any) => {
+          if (vote !== null && vote !== undefined) {
+            const voteId = typeof vote === 'object' ? vote.toString() : vote;
+            if (voteId && typeof voteId === 'string' && voteId !== '[object Object]') {
+              userIds.add(voteId);
+            }
+          }
+        });
       });
 
       // Fetch user information for all users
@@ -832,10 +856,34 @@ export class PollController {
       // Get all unique user IDs from trending polls
       const userIds = new Set<string>();
       trendingPolls.forEach((poll: any) => {
-        if (poll.creator) userIds.add(poll.creator.toString());
-        if (poll.createdBy) userIds.add(poll.createdBy);
-        if (poll.acceptedBy) userIds.add(poll.acceptedBy.toString());
-        poll.votes.forEach((vote: any) => userIds.add(vote.toString()));
+        // Safely convert creator to string
+        if (poll.creator) {
+          const creatorId = typeof poll.creator === 'object' && poll.creator !== null ? poll.creator.toString() : poll.creator;
+          if (creatorId && typeof creatorId === 'string' && creatorId !== '[object Object]') {
+            userIds.add(creatorId);
+          }
+        }
+        if (poll.createdBy && typeof poll.createdBy === 'string' && poll.createdBy !== '[object Object]') {
+          userIds.add(poll.createdBy);
+        }
+        
+        // Safely convert acceptedBy to string
+        if (poll.acceptedBy) {
+          const acceptedById = typeof poll.acceptedBy === 'object' && poll.acceptedBy !== null ? poll.acceptedBy.toString() : poll.acceptedBy;
+          if (acceptedById && typeof acceptedById === 'string' && acceptedById !== '[object Object]') {
+            userIds.add(acceptedById);
+          }
+        }
+        
+        // Safely convert votes to strings
+        poll.votes.forEach((vote: any) => {
+          if (vote !== null && vote !== undefined) {
+            const voteId = typeof vote === 'object' ? vote.toString() : vote;
+            if (voteId && typeof voteId === 'string' && voteId !== '[object Object]') {
+              userIds.add(voteId);
+            }
+          }
+        });
       });
 
       // Fetch user information for all users
