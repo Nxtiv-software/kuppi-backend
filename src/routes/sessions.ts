@@ -18,7 +18,11 @@ import {
   getTutorCreatedSessions,
   showInterestInSession,
   scheduleTutorSession,
-  markSessionCompleted
+  markSessionCompleted,
+  addWhatsAppGroupLink,
+  getWhatsAppGroupLink,
+  getSessionMembers,
+  removeWhatsAppGroupLink
 } from '../controllers/sessionController';
 import { requireAuth, AuthenticatedRequest } from '../middlewares/clerkAuth';
 
@@ -94,5 +98,18 @@ router.post('/:sessionId/announcement', requireAuth, addSessionAnnouncement);
 
 // Download attachment from a session
 router.get('/:sessionId/attachments/:fileName', requireAuth, downloadAttachment);
+
+// ==================== WhatsApp Group Management Routes ====================
+// Add or update WhatsApp group link for a session
+router.post('/:sessionId/whatsapp-link', requireAuth, addWhatsAppGroupLink);
+
+// Get WhatsApp group link for a session
+router.get('/:sessionId/whatsapp-link', requireAuth, getWhatsAppGroupLink);
+
+// Get session members (students + tutor)
+router.get('/:sessionId/members', requireAuth, getSessionMembers);
+
+// Remove WhatsApp group link from a session
+router.delete('/:sessionId/whatsapp-link', requireAuth, removeWhatsAppGroupLink);
 
 export default router;
