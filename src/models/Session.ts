@@ -38,6 +38,7 @@ export interface ISession extends Document {
   interestedStudents?: (mongoose.Types.ObjectId | string)[]; // For tutor-created sessions
   status: 'upcoming' | 'completed' | 'cancelled' | 'open_for_interest' | 'ready_to_schedule' | 'scheduled';
   meetingLink?: string;
+  whatsappGroupLink?: string; // WhatsApp group link for session communication
   materials?: string[];
   attachments?: IAttachment[];
   announcements?: IAnnouncement[];
@@ -137,6 +138,18 @@ const SessionSchema = new Schema<ISession>({
   meetingLink: {
     type: String,
     trim: true
+  },
+  whatsappGroupLink: {
+    type: String,
+    trim: true,
+    validate: {
+      validator: function(v: string) {
+        if (!v) return true; // Optional field
+        // Validate WhatsApp group link format
+        return /^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+$/.test(v);
+      },
+      message: 'Invalid WhatsApp group link format. Must be https://chat.whatsapp.com/...'
+    }
   },
   materials: [{
     type: String,
