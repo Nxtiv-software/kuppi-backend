@@ -1770,3 +1770,255 @@ export const markSessionCompleted = async (req: Request, res: Response) => {
     });
   }
 };
+
+// ==================== WhatsApp Group Management ====================
+
+/**
+ * Add or Update WhatsApp Group Link for a session
+ * POST /api/sessions/:sessionId/whatsapp-link
+ */
+export const addWhatsAppGroupLink = async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+    const { whatsappGroupLink } = req.body;
+    const tutorId = (req as AuthenticatedRequest).auth?.userId;
+
+    console.log(`📱 Adding WhatsApp link for session ${sessionId}`);
+
+    // Validate WhatsApp link format
+    const whatsappLinkPattern = /^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+$/;
+    if (!whatsappGroupLink || !whatsappLinkPattern.test(whatsappGroupLink)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid WhatsApp group link format. Must be https://chat.whatsapp.com/...'
+      });
+    }
+
+    // Find the session
+    const session = await Session.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    // Verify tutor ownership
+    if (session.tutorId.toString() !== tutorId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the session tutor can add WhatsApp group link'
+      });
+    }
+
+    // Update WhatsApp link
+    session.whatsappGroupLink = whatsappGroupLink;
+    await session.save();
+
+    console.log(`✅ WhatsApp link added to session ${sessionId}`);
+
+    res.json({
+      success: true,
+      message: 'WhatsApp group link added successfully',
+      data: {
+        sessionId: session._id,
+        whatsappGroupLink: session.whatsappGroupLink
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error adding WhatsApp link:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to add WhatsApp group link',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get WhatsApp Group Link for a session
+ * GET /api/sessions/:sessionId/whatsapp-link
+ */
+export const getWhatsAppGroupLink = async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = (req as AuthenticatedRequest).auth?.userId;
+
+    console.log(`📱 Fetching WhatsApp link for session ${sessionId}`);
+
+    // Find the session
+    const session = await Session.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    // Check if user is enrolled or is the tutor
+    const isEnrolled = session.enrolledStudents.some(
+      studentId => studentId.toString() === userId
+    );
+    const isTutor = session.tutorId.toString() === userId;
+
+    if (!isEnrolled && !isTutor) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only enrolled students and the tutor can access WhatsApp group link'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        sessionId: session._id,
+        whatsappGroupLink: session.whatsappGroupLink || null,
+        hasLink: !!session.whatsappGroupLink
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error fetching WhatsApp link:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch WhatsApp group link',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Get Session Members (for WhatsApp group)
+ * GET /api/sessions/:sessionId/members
+ */
+export const getSessionMembers = async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = (req as AuthenticatedRequest).auth?.userId;
+
+    console.log(`👥 Fetching members for session ${sessionId}`);
+
+    // Find the session
+    const session = await Session.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    // Check if user is enrolled or is the tutor
+    const isEnrolled = session.enrolledStudents.some(
+      studentId => studentId.toString() === userId
+    );
+    const isTutor = session.tutorId.toString() === userId;
+
+    if (!isEnrolled && !isTutor) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only enrolled students and the tutor can view session members'
+      });
+    }
+
+    // Get enrolled students info
+    const studentIds = session.enrolledStudents || [];
+    const studentsInfo = studentIds.length > 0 
+      ? await userService.getUsersInfo(studentIds.map(id => id.toString())) 
+      : new Map();
+    
+    const enrolledStudentsWithInfo = studentIds.map(studentId => {
+      const studentInfo = studentsInfo.get(studentId.toString());
+      return studentInfo ? {
+        id: studentInfo.id,
+        name: studentInfo.name,
+        email: studentInfo.email,
+        firstName: studentInfo.firstName,
+        lastName: studentInfo.lastName
+      } : {
+        id: studentId.toString(),
+        name: `Student ${studentId.toString().slice(-6)}`,
+        email: 'Unknown'
+      };
+    });
+
+    // Get tutor info
+    const tutorInfo = await userService.getUserInfo(session.tutorId.toString());
+
+    res.json({
+      success: true,
+      data: {
+        sessionId: session._id,
+        sessionTitle: session.title,
+        tutor: {
+          id: session.tutorId,
+          name: tutorInfo?.name || session.tutorName,
+          email: tutorInfo?.email || session.tutorEmail
+        },
+        students: enrolledStudentsWithInfo,
+        totalMembers: enrolledStudentsWithInfo.length + 1, // +1 for tutor
+        whatsappGroupLink: session.whatsappGroupLink || null
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error fetching session members:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch session members',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Remove WhatsApp Group Link from a session
+ * DELETE /api/sessions/:sessionId/whatsapp-link
+ */
+export const removeWhatsAppGroupLink = async (req: Request, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+    const tutorId = (req as AuthenticatedRequest).auth?.userId;
+
+    console.log(`📱 Removing WhatsApp link from session ${sessionId}`);
+
+    // Find the session
+    const session = await Session.findById(sessionId);
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    // Verify tutor ownership
+    if (session.tutorId.toString() !== tutorId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only the session tutor can remove WhatsApp group link'
+      });
+    }
+
+    // Remove WhatsApp link
+    session.whatsappGroupLink = undefined;
+    await session.save();
+
+    console.log(`✅ WhatsApp link removed from session ${sessionId}`);
+
+    res.json({
+      success: true,
+      message: 'WhatsApp group link removed successfully',
+      data: {
+        sessionId: session._id
+      }
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error removing WhatsApp link:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to remove WhatsApp group link',
+      error: error.message
+    });
+  }
+};
