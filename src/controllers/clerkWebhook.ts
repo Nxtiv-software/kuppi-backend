@@ -10,23 +10,35 @@ if (!webhookSecret) {
 
 export const handleClerkWebhook = async (req: Request, res: Response) => {
   try {
+    console.log('🔔 ===== CLERK WEBHOOK RECEIVED =====');
     const headers = req.headers;
-    const payload = JSON.stringify(req.body);
+    
+    // Get raw body as string - req.body is Buffer from express.raw()
+    const payload = req.body.toString();
+    
+    console.log('📦 Payload length:', payload.length);
+    console.log('🔑 Headers:', {
+      'svix-id': headers['svix-id'],
+      'svix-timestamp': headers['svix-timestamp'],
+      'svix-signature': headers['svix-signature'] ? 'present' : 'missing'
+    });
 
     const wh = new Webhook(webhookSecret);
     let evt: any;
 
     try {
       evt = wh.verify(payload, headers as any);
+      console.log('✅ Webhook signature verified');
     } catch (err) {
-      console.error('Error verifying webhook:', err);
+      console.error('❌ Error verifying webhook:', err);
       return res.status(400).json({ error: 'Webhook verification failed' });
     }
 
     const eventType = evt.type;
-    const { id, email_addresses, first_name, last_name, image_url } = evt.data as any;
+    const { id, email_addresses, first_name, last_name, image_url, public_metadata, private_metadata, unsafe_metadata } = evt.data as any;
 
-    console.log('Received Clerk webhook:', eventType, id);
+    console.log('📧 Received Clerk webhook:', eventType, '| User ID:', id);
+    console.log('🏷️  Metadata:', { public_metadata, private_metadata, unsafe_metadata });
 
     switch (eventType) {
       case 'user.created':
@@ -37,6 +49,7 @@ export const handleClerkWebhook = async (req: Request, res: Response) => {
           firstName: first_name,
           lastName: last_name,
           imageUrl: image_url,
+          metadata: { public_metadata, private_metadata, unsafe_metadata },
           primaryEmailAddressId: (evt.data as any).primary_email_address_id
         });
         break;
@@ -58,15 +71,25 @@ export const handleClerkWebhook = async (req: Request, res: Response) => {
 
 const handleUserUpsert = async (clerkUserData: any) => {
   try {
-    const { id: clerkId, emailAddresses, firstName, lastName, imageUrl, primaryEmailAddressId } = clerkUserData;
+    console.log('👤 Upserting user:', clerkUserData);
+    const { id: clerkId, emailAddresses, firstName, lastName, imageUrl, primaryEmailAddressId, metadata } = clerkUserData;
     const primaryEmail = emailAddresses?.find((email: any) => email.id === primaryEmailAddressId)?.email_address;
     
+    console.log('📧 Primary email:', primaryEmail);
+
+    // Extract role from Clerk metadata (check all metadata sources)
+    const clerkRole = metadata?.public_metadata?.role || 
+                     metadata?.private_metadata?.role || 
+                     metadata?.unsafe_metadata?.role;
+    console.log('🏷️  Clerk role from metadata:', clerkRole);
+
     if (!primaryEmail) {
-      console.error('No primary email found for Clerk user:', clerkId);
+      console.error('❌ No primary email found for Clerk user:', clerkId);
       return;
     }
 
     let user = await User.findOne({ clerkId });
+    console.log('🔍 Existing user with clerkId?', user ? 'Yes' : 'No');
     
     if (user) {
       // Update existing user
@@ -76,8 +99,15 @@ const handleUserUpsert = async (clerkUserData: any) => {
       user.name = `${firstName} ${lastName}`.trim() || primaryEmail.split('@')[0];
       user.profileImageUrl = imageUrl;
       user.lastSyncedAt = new Date();
+      
+      // Sync role from Clerk metadata if provided
+      if (clerkRole && ['student', 'tutor', 'admin'].includes(clerkRole)) {
+        user.role = clerkRole;
+        console.log('🔄 Updated role from Clerk:', clerkRole);
+      }
+      
       await user.save();
-      console.log('Updated user:', user.email);
+      console.log('✅ Updated user:', user.email, '| Role:', user.role);
     } else {
       // Check if user exists with this email (JWT user upgrading to Clerk)
       user = await User.findOne({ email: primaryEmail });
@@ -90,10 +120,19 @@ const handleUserUpsert = async (clerkUserData: any) => {
         user.lastName = lastName;
         user.profileImageUrl = imageUrl;
         user.lastSyncedAt = new Date();
+        
+        // Sync role from Clerk metadata if provided
+        if (clerkRole && ['student', 'tutor', 'admin'].includes(clerkRole)) {
+          user.role = clerkRole;
+          console.log('🔄 Linked user role from Clerk:', clerkRole);
+        }
+        
         await user.save();
-        console.log('Linked existing user to Clerk:', user.email);
+        console.log('✅ Linked existing user to Clerk:', user.email, '| Role:', user.role);
       } else {
-        // Create new user
+        // Create new user - determine role
+        const defaultRole = clerkRole && ['student', 'tutor', 'admin'].includes(clerkRole) ? clerkRole : 'student';
+        
         user = await User.create({
           clerkId,
           email: primaryEmail,
@@ -102,9 +141,10 @@ const handleUserUpsert = async (clerkUserData: any) => {
           lastName,
           profileImageUrl: imageUrl,
           authMethod: 'clerk',
+          role: defaultRole, // Use Clerk role or default to student
           lastSyncedAt: new Date()
         });
-        console.log('Created new user:', user.email);
+        console.log('✅ Created new user:', user.email, '| Role:', user.role);
       }
     }
   } catch (error) {
