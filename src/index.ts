@@ -8,7 +8,7 @@ import loginRouter from "./routes/login";
 import router from "./routes/polls";
 import refreshRouter from "./routes/refreshToken";
 import sessionsRouter from "./routes/sessions";
-// import webHookrouter from "./routes/clerkWebhook"; // Commented out until implemented
+import webHookrouter from "./routes/clerkWebhook";
 
 const app = express();
 
@@ -32,7 +32,8 @@ app.use(cors({
 }));
 app.options('*', cors());
 
-// app.use('/clerk', webHookrouter); // Commented out until implemented
+// Clerk webhook route BEFORE express.json() - needs raw body for signature verification
+app.use('/clerk', webHookrouter);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
