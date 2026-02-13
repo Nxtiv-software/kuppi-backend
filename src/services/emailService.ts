@@ -115,14 +115,23 @@ export const sendPollCreatedEmail = async (pollData: {
     console.log('📧 ===== SENDING POLL CREATED EMAIL =====');
     console.log('📧 Poll:', pollData.title);
     
-    const studentEmails = await getAllStudentEmails();
+    const allStudentEmails = await getAllStudentEmails();
 
-    if (studentEmails.length === 0) {
+    if (allStudentEmails.length === 0) {
       console.log('⚠️ No student emails found - cannot send poll created email');
       return false;
     }
 
-    console.log(`📧 Sending poll created email to ${studentEmails.length} students`);
+    // 🔧 TESTING MODE: Only send to account owner due to FREE tier limitation
+    const studentEmails = allStudentEmails.filter(email => email === 'nxtivsoftware@gmail.com');
+    
+    if (studentEmails.length === 0) {
+      console.log('⚠️ Account owner not in student list - cannot send test email');
+      return false;
+    }
+
+    console.log(`📧 TESTING MODE: Sending poll created email to account owner only (${studentEmails.length} recipients)`);
+    console.log(`📧 Would normally notify ${allStudentEmails.length} students:`, allStudentEmails);
 
     const html = `
       <!DOCTYPE html>
@@ -199,12 +208,24 @@ export const sendPollThresholdEmail = async (pollData: {
   pollId: string;
 }): Promise<boolean> => {
   try {
-    const tutorEmails = await getTutorEmails(pollData.subject);
+    const allTutorEmails = await getTutorEmails(pollData.subject);
 
-    if (tutorEmails.length === 0) {
+    if (allTutorEmails.length === 0) {
       console.log('⚠️ No tutor emails found');
       return false;
     }
+
+    // 🔧 TESTING MODE: Only send to account owner due to FREE tier limitation  
+    const tutorEmails = allTutorEmails.filter(email => email === 'nxtivsoftware@gmail.com');
+    
+    if (tutorEmails.length === 0) {
+      console.log('⚠️ Account owner not in tutor list - would normally notify:', allTutorEmails);
+      console.log('📧 Skipping tutor threshold email (account owner is not a tutor)');
+      return false;
+    }
+
+    console.log(`📧 TESTING MODE: Sending threshold email to account owner only (${tutorEmails.length} recipients)`);
+    console.log(`📧 Would normally notify ${allTutorEmails.length} tutors:`, allTutorEmails);
 
     const votePercentage = Math.round((pollData.voteCount / pollData.targetVotes) * 100);
 
@@ -288,12 +309,24 @@ export const sendSessionScheduledEmail = async (sessionData: {
   voterIds: (string | any)[];
 }): Promise<boolean> => {
   try {
-    const voterEmails = await getVoterEmails(sessionData.voterIds);
+    const allVoterEmails = await getVoterEmails(sessionData.voterIds);
 
-    if (voterEmails.length === 0) {
+    if (allVoterEmails.length === 0) {
       console.log('⚠️ No voter emails found');
       return false;
     }
+
+    // 🔧 TESTING MODE: Only send to account owner due to FREE tier limitation  
+    const voterEmails = allVoterEmails.filter(email => email === 'nxtivsoftware@gmail.com');
+    
+    if (voterEmails.length === 0) {
+      console.log('⚠️ Account owner not in voter list - would normally notify:', allVoterEmails);
+      console.log('📧 Skipping session notification (account owner is not a voter)');
+      return false;
+    }
+
+    console.log(`📧 TESTING MODE: Sending session notification to account owner only (${voterEmails.length} recipients)`);
+    console.log(`📧 Would normally notify ${allVoterEmails.length} voters:`, allVoterEmails);
 
     const html = `
       <!DOCTYPE html>
