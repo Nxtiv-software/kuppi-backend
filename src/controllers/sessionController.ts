@@ -9,6 +9,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { userService } from '../services/userService';
+import { sendSessionScheduledEmail } from '../services/emailService';
 
 // Get session requests for tutor (polls with >50% votes)
 export const getSessionRequests = async (req: Request, res: Response) => {
@@ -377,6 +378,24 @@ export const scheduleSession = async (req: Request, res: Response) => {
     });
     
     console.log('Poll status updated to scheduled');
+
+    // 📧 Send email notification to voters
+    sendSessionScheduledEmail({
+      title: session.title,
+      subject: session.subject,
+      topic: session.topic,
+      description: session.description,
+      date: session.date!,
+      time: session.time!,
+      duration: session.duration,
+      feePerStudent: session.feePerStudent,
+      tutorName: session.tutorName,
+      meetingLink: session.meetingLink,
+      voterIds: session.enrolledStudents
+    }).catch(err => {
+      console.error('Failed to send session scheduled email:', err);
+      // Don't fail the request if email fails
+    });
 
     res.status(201).json({
       success: true,
