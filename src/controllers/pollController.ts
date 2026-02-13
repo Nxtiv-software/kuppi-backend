@@ -4,6 +4,7 @@ import { AuthRequest } from '../middlewares/auth';
 import mongoose from 'mongoose';
 import User from '../models/user';
 import { userService } from '../services/userService';
+import { sendPollCreatedEmail, sendPollThresholdEmail } from '../services/emailService';
 
 // Interface for poll statistics
 interface PollStats {
@@ -249,8 +250,32 @@ export class PollController {
       const votePercentage = (poll.votes.length / poll.targetVotes) * 100;
       console.log('📊 Vote percentage:', votePercentage.toFixed(1) + '%');
       
+      // Check if poll just reached 50% threshold
+      const previousVoteCount = poll.votes.length - 1;
+      const previousPercentage = (previousVoteCount / poll.targetVotes) * 100;
+      const justReachedThreshold = previousPercentage < 50 && votePercentage >= 50;
+      
       if (votePercentage >= 50) {
         console.log('🎯 Poll reached 50%+ votes - now eligible for session requests');
+        
+        // 📧 Send email to tutors only when poll JUST reached threshold
+        if (justReachedThreshold) {
+          console.log('📧 Sending threshold email to tutors...');
+          sendPollThresholdEmail({
+            title: poll.title,
+            subject: poll.subject,
+            chapter: poll.chapter,
+            description: poll.description,
+            voteCount: poll.votes.length,
+            targetVotes: poll.targetVotes,
+            preferredDate: poll.preferredDate,
+            timeSlot: poll.timeSlot,
+            pollId: (poll._id as mongoose.Types.ObjectId).toString()
+          }).catch(err => {
+            console.error('Failed to send poll threshold email:', err);
+            // Don't fail the request if email fails
+          });
+        }
       }
       
       await poll.save();
@@ -642,6 +667,20 @@ export class PollController {
         success: true,
         message: 'Poll created successfully',
         data: cleanPollResponse
+      });
+
+      // 📧 Send email notification to all students
+      sendPollCreatedEmail({
+        title: savedPoll.title,
+        subject: savedPoll.subject,
+        chapter: savedPoll.chapter,
+        description: savedPoll.description,
+        preferredDate: savedPoll.preferredDate,
+        timeSlot: savedPoll.timeSlot,
+        creatorName: finalCreatorName
+      }).catch(err => {
+        console.error('Failed to send poll created email:', err);
+        // Don't fail the request if email fails
       });
 
     } catch (error: any) {
