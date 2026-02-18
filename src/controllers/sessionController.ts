@@ -1194,6 +1194,8 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
       const displayDate = session.isScheduled && session.date ? session.date : session.expectedDate;
       const displayTime = session.isScheduled && session.time ? session.time : session.expectedTime;
       const isScheduled = session.isScheduled || false;
+      const enrolledCount = session.enrolledCount || session.enrolledStudents?.length || 0;
+      const availableSpots = Math.max(0, session.maxStudents - enrolledCount);
 
       return {
         id: session._id,
@@ -1203,18 +1205,44 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
         description: session.description,
         instructor: tutorInfo?.name || session.tutorName || 'Smart Tutor',
         tutorId: session.tutorId,
+        tutorName: session.tutorName,
+        
+        // Primary display fields (automatically switches based on scheduling status)
         date: displayDate,
         time: displayTime,
         isScheduled, // Flag to indicate if this is actual or expected schedule
-        expectedDate: session.expectedDate,
-        expectedTime: session.expectedTime,
-        actualDate: session.date,
-        actualTime: session.time,
+        
+        // Complete schedule information
+        schedule: {
+          isScheduled,
+          // Expected schedule (shown during interest period - BEFORE scheduling)
+          expected: {
+            date: session.expectedDate,
+            time: session.expectedTime
+          },
+          // Actual schedule (shown AFTER tutor schedules)
+          actual: {
+            date: session.date,
+            time: session.time
+          },
+          // Current display (switches automatically)
+          display: {
+            date: displayDate,
+            time: displayTime,
+            label: isScheduled ? 'Scheduled' : 'Expected Schedule'
+          }
+        },
+        
         duration: session.duration,
         price: session.feePerStudent,
-        enrolled: session.enrolledCount || session.enrolledStudents?.length || 0,
+        feePerStudent: session.feePerStudent,
+        
+        // Enrollment information
+        enrolled: enrolledCount,
         maxStudents: session.maxStudents,
-        availableSpots: Math.max(0, session.maxStudents - (session.enrolledStudents?.length || 0)),
+        availableSpots: availableSpots,
+        spotsLeft: availableSpots,
+        
         status: session.status,
         source, // 'poll_based' or 'tutor_created'
         isEnrolled,
@@ -1223,6 +1251,7 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
         interestedCount: session.interestedStudents?.length || 0,
         minStudents: session.minStudents || 1,
         pollId: session.pollId,
+        
         // Add some mock data for UI consistency
         rating: 4.5 + Math.random() * 0.5,
         reviews: Math.floor(Math.random() * 200) + 50,
@@ -1360,7 +1389,13 @@ export const joinSession = async (req: Request, res: Response) => {
       data: {
         sessionId: session._id,
         enrolledCount: session.enrolledStudents.length,
-        availableSpots: session.maxStudents - session.enrolledStudents.length
+        enrolledStudentsCount: session.enrolledStudents.length,
+        interestedStudentsCount: session.interestedStudents?.length || 0,
+        displayCount: session.enrolledStudents.length,
+        displayLabel: 'Enrolled',
+        availableSpots: session.maxStudents - session.enrolledStudents.length,
+        totalRevenue: session.enrolledStudents.length * session.feePerStudent,
+        isScheduled: session.isScheduled || session.status === 'scheduled'
       }
     });
 
@@ -1400,9 +1435,20 @@ export const createTutorSession = async (req: Request, res: Response) => {
       expectedTime
     } = req.body;
 
-    // Validation
+    console.log('📥 Received create session request:', req.body);
+
+    // Validation - expectedDate and expectedTime are REQUIRED
     if (!title || !subject || !topic || !description || !feePerStudent || !expectedDate || !expectedTime) {
       console.log('❌ Validation failed - missing required fields');
+      console.log('Missing fields:', {
+        title: !title,
+        subject: !subject,
+        topic: !topic,
+        description: !description,
+        feePerStudent: !feePerStudent,
+        expectedDate: !expectedDate,
+        expectedTime: !expectedTime
+      });
       return res.status(400).json({
         success: false,
         message: 'Required fields missing: title, subject, topic, description, feePerStudent, expectedDate, expectedTime'
@@ -1514,13 +1560,23 @@ export const getTutorCreatedSessions = async (req: Request, res: Response) => {
     console.log(`Found ${sessions.length} active tutor-created sessions (excluding completed)`);
 
     // Add calculated fields to each session
-    const sessionsWithCalculations = sessions.map(session => ({
-      ...session,
-      enrolledStudentsCount: session.enrolledStudents?.length || 0,
-      interestedStudentsCount: session.interestedStudents?.length || 0,
-      totalRevenue: (session.enrolledStudents?.length || 0) * (session.feePerStudent || 0),
-      availableSpots: session.maxStudents - (session.enrolledStudents?.length || 0)
-    }));
+    const sessionsWithCalculations = sessions.map(session => {
+      const enrolledCount = session.enrolledStudents?.length || 0;
+      const interestedCount = session.interestedStudents?.length || 0;
+      const isScheduled = session.isScheduled || session.status === 'scheduled';
+      
+      return {
+        ...session,
+        enrolledStudentsCount: enrolledCount,
+        interestedStudentsCount: interestedCount,
+        // Display count switches based on scheduling status
+        displayCount: isScheduled ? enrolledCount : interestedCount,
+        displayLabel: isScheduled ? 'Enrolled' : 'Interested',
+        isScheduled,
+        totalRevenue: enrolledCount * (session.feePerStudent || 0),
+        availableSpots: session.maxStudents - enrolledCount
+      };
+    });
 
     // Sort sessions by priority:
     // 1. ready_to_schedule (highest priority)
@@ -1664,8 +1720,13 @@ export const showInterestInSession = async (req: Request, res: Response) => {
       data: {
         sessionId: session._id,
         interestedCount: session.interestedStudents.length,
+        interestedStudentsCount: session.interestedStudents.length,
+        enrolledStudentsCount: session.enrolledStudents?.length || 0,
+        displayCount: session.interestedStudents.length,
+        displayLabel: 'Interested',
         minStudents: session.minStudents,
         status: session.status,
+        isScheduled: session.isScheduled || false,
         readyToSchedule: session.status === 'ready_to_schedule'
       }
     });
@@ -1766,7 +1827,14 @@ export const scheduleTutorSession = async (req: Request, res: Response) => {
         date: session.date,
         time: session.time,
         status: session.status,
+        isScheduled: session.isScheduled,
         enrolledStudents: session.enrolledStudents.length,
+        enrolledStudentsCount: session.enrolledStudents.length,
+        interestedStudentsCount: session.interestedStudents?.length || 0,
+        displayCount: session.enrolledStudents.length,
+        displayLabel: 'Enrolled',
+        totalRevenue: session.enrolledStudents.length * session.feePerStudent,
+        availableSpots: session.maxStudents - session.enrolledStudents.length,
         isUnlimited: isUnlimitedSession
       }
     });
