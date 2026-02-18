@@ -1259,6 +1259,7 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
         displayLabel: displayLabel,
         enrolledStudentsCount: enrolledCount,
         interestedStudentsCount: interestedCount,
+        totalRevenue: enrolledCount * session.feePerStudent,
         
         status: session.status,
         source, // 'poll_based' or 'tutor_created'
