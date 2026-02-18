@@ -29,6 +29,8 @@ export interface ISession extends Document {
   description: string;
   date?: Date; // scheduledDate - optional until scheduled
   time?: string; // scheduledTime - optional until scheduled
+  expectedDate?: Date; // Expected date before scheduling (for tutor-created sessions)
+  expectedTime?: string; // Expected time before scheduling (for tutor-created sessions)
   duration: number; // in hours
   fee?: number; // Optional for backward compatibility
   feePerStudent: number;
@@ -101,6 +103,15 @@ const SessionSchema = new Schema<ISession>({
   time: {
     type: String,
     required: false, // Optional until scheduled
+    trim: true
+  },
+  expectedDate: {
+    type: Date,
+    required: false // Expected date before scheduling (for tutor-created sessions)
+  },
+  expectedTime: {
+    type: String,
+    required: false, // Expected time before scheduling (for tutor-created sessions)
     trim: true
   },
   duration: {

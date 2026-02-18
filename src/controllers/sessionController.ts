@@ -1090,24 +1090,28 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
         // Include:
         {
           $or: [
-            { status: 'upcoming', date: { $gte: new Date() } }, // Poll-based scheduled sessions
-            { status: 'open_for_interest' }, // Tutor-created sessions open for interest (both scheduled and unscheduled)
+            { status: 'upcoming', date: { $gte: new Date() } }, // Poll-based scheduled sessions (future only)
+            { status: 'open_for_interest' }, // Tutor-created sessions open for interest
             { status: 'ready_to_schedule' }, // Tutor-created sessions ready to schedule
-            { status: 'scheduled', date: { $gte: new Date() } } // Limited sessions that are scheduled
+            { 
+              // Tutor-created scheduled sessions - show until session starts or marked complete
+              status: 'scheduled', 
+              source: 'tutor_created',
+              $or: [
+                { date: { $gte: new Date() } }, // Future sessions
+                { date: { $exists: false } } // Not yet scheduled
+              ]
+            }
           ]
         }
       ]
     };
 
-    // If user is authenticated, filter based on participation
-    // For unlimited scheduled sessions (open_for_interest + isScheduled):
-    //   - Hide if user is already enrolled
-    //   - Keep showing if user showed interest but not yet enrolled (they can still enroll)
-    // For other sessions:
-    //   - Hide if user is enrolled OR showed interest in scheduled sessions
+    // If user is authenticated, filter based on enrollment only
+    // IMPORTANT: Do NOT filter by interestedStudents - students can still see and join after showing interest
+    // Only hide sessions where user is already enrolled
     const userParticipationFilter = userId ? {
-      // Don't show sessions where user is already enrolled (applies to all sessions)
-      enrolledStudents: { $ne: userId }
+      enrolledStudents: { $ne: userId } // Not enrolled
     } : {};
 
     // Combine the base query with user participation filter
@@ -1186,6 +1190,11 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
         studentId.toString() === userId.toString()
       );
 
+      // Determine which date/time to show: actual (if scheduled) or expected (if not scheduled)
+      const displayDate = session.isScheduled && session.date ? session.date : session.expectedDate;
+      const displayTime = session.isScheduled && session.time ? session.time : session.expectedTime;
+      const isScheduled = session.isScheduled || false;
+
       return {
         id: session._id,
         title: session.title,
@@ -1194,8 +1203,13 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
         description: session.description,
         instructor: tutorInfo?.name || session.tutorName || 'Smart Tutor',
         tutorId: session.tutorId,
-        date: session.date,
-        time: session.time,
+        date: displayDate,
+        time: displayTime,
+        isScheduled, // Flag to indicate if this is actual or expected schedule
+        expectedDate: session.expectedDate,
+        expectedTime: session.expectedTime,
+        actualDate: session.date,
+        actualTime: session.time,
         duration: session.duration,
         price: session.feePerStudent,
         enrolled: session.enrolledCount || session.enrolledStudents?.length || 0,
@@ -1206,6 +1220,7 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
         isEnrolled,
         hasShownInterest,
         interestedStudents: session.interestedStudents || [],
+        interestedCount: session.interestedStudents?.length || 0,
         minStudents: session.minStudents || 1,
         pollId: session.pollId,
         // Add some mock data for UI consistency
@@ -1221,7 +1236,8 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
           session.topic, 
           session.subject.replace('-', ' '),
           source === 'tutor_created' ? 'Tutor Session' : 'Community Request',
-          session.maxStudents === 999 ? 'Unlimited' : `Max ${session.maxStudents}`
+          session.maxStudents === 999 ? 'Unlimited' : `Max ${session.maxStudents}`,
+          isScheduled ? 'Scheduled' : 'Expected Schedule'
         ].filter(Boolean),
         createdAt: session.createdAt
       };
@@ -1325,6 +1341,15 @@ export const joinSession = async (req: Request, res: Response) => {
 
     // Add user to enrolled students
     session.enrolledStudents.push(userId);
+    
+    // Remove from interested students if they were there
+    if (session.interestedStudents && session.interestedStudents.length > 0) {
+      session.interestedStudents = session.interestedStudents.filter((studentId: any) => 
+        studentId.toString() !== userId.toString()
+      );
+      console.log(`🔄 Removed user ${userId} from interested students (now enrolled)`);
+    }
+    
     await session.save();
 
     console.log(`✅ User ${userId} successfully joined session ${sessionId}`);
@@ -1370,15 +1395,17 @@ export const createTutorSession = async (req: Request, res: Response) => {
       feePerStudent,
       maxStudents,
       minStudents,
-      schedulingNote
+      schedulingNote,
+      expectedDate,
+      expectedTime
     } = req.body;
 
     // Validation
-    if (!title || !subject || !topic || !description || !feePerStudent) {
+    if (!title || !subject || !topic || !description || !feePerStudent || !expectedDate || !expectedTime) {
       console.log('❌ Validation failed - missing required fields');
       return res.status(400).json({
         success: false,
-        message: 'Required fields missing: title, subject, topic, description, feePerStudent'
+        message: 'Required fields missing: title, subject, topic, description, feePerStudent, expectedDate, expectedTime'
       });
     }
 
@@ -1404,11 +1431,13 @@ export const createTutorSession = async (req: Request, res: Response) => {
       tutorEmail,
       feePerStudent,
       maxStudents,
-      minStudents 
+      minStudents,
+      expectedDate,
+      expectedTime
     });
 
     // Create session
-    const sessionData = {
+    const sessionData: any = {
       title,
       subject,
       topic,
@@ -1428,6 +1457,14 @@ export const createTutorSession = async (req: Request, res: Response) => {
       isScheduled: false,
       source: 'tutor_created' // Mark as tutor-created vs poll-based
     };
+
+    // Add expected date/time if provided
+    if (expectedDate) {
+      sessionData.expectedDate = new Date(expectedDate);
+    }
+    if (expectedTime) {
+      sessionData.expectedTime = expectedTime;
+    }
 
     console.log('📝 Creating session with processed data:', sessionData);
 
@@ -1706,7 +1743,8 @@ export const scheduleTutorSession = async (req: Request, res: Response) => {
     session.date = new Date(date);
     session.time = time;
     session.isScheduled = true;
-    session.status = 'upcoming'; // Change to upcoming (not scheduled)
+    // Keep status as 'scheduled' to allow it to remain in Browse Kuppi until session starts
+    session.status = 'scheduled';
     
     // Move interested students to enrolled students (for both limited and unlimited)
     if (session.interestedStudents && session.interestedStudents.length > 0) {
