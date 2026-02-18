@@ -288,8 +288,6 @@ export const scheduleSession = async (req: Request, res: Response) => {
   try {
     const { pollId } = req.params;
     const {
-      tutorName = 'Test Tutor',
-      tutorEmail = 'tutor@test.com',
       date,
       time,
       duration,
@@ -329,7 +327,13 @@ export const scheduleSession = async (req: Request, res: Response) => {
       });
     }
 
+    // Get tutor information from Clerk
+    const tutorInfo = await userService.getUserInfo(tutorId);
+    const tutorName = tutorInfo?.name || tutorInfo?.firstName + ' ' + tutorInfo?.lastName || 'Tutor';
+    const tutorEmail = tutorInfo?.email || 'tutor@kuppi.com';
+
     console.log('Scheduling session for poll:', pollId);
+    console.log('Tutor info:', { tutorId, tutorName, tutorEmail });
     console.log('Poll details:', {
       title: poll.title,
       subject: poll.subject,
@@ -1366,21 +1370,8 @@ export const createTutorSession = async (req: Request, res: Response) => {
       feePerStudent,
       maxStudents,
       minStudents,
-      schedulingNote,
-      tutorName,
-      tutorEmail
+      schedulingNote
     } = req.body;
-
-    console.log('🚀 Creating tutor session with data:', { 
-      title, 
-      subject, 
-      topic, 
-      tutorId, 
-      tutorEmail,
-      feePerStudent,
-      maxStudents,
-      minStudents 
-    });
 
     // Validation
     if (!title || !subject || !topic || !description || !feePerStudent) {
@@ -1399,6 +1390,23 @@ export const createTutorSession = async (req: Request, res: Response) => {
       });
     }
 
+    // Get tutor information from Clerk
+    const tutorInfo = await userService.getUserInfo(tutorId);
+    const tutorName = tutorInfo?.name || tutorInfo?.firstName + ' ' + tutorInfo?.lastName || 'Tutor';
+    const tutorEmail = tutorInfo?.email || 'tutor@kuppi.com';
+
+    console.log('🚀 Creating tutor session with data:', { 
+      title, 
+      subject, 
+      topic, 
+      tutorId,
+      tutorName,
+      tutorEmail,
+      feePerStudent,
+      maxStudents,
+      minStudents 
+    });
+
     // Create session
     const sessionData = {
       title,
@@ -1410,8 +1418,8 @@ export const createTutorSession = async (req: Request, res: Response) => {
       maxStudents: parseInt(maxStudents) || 20,
       minStudents: parseInt(minStudents) || 1,
       tutorId,
-      tutorName: tutorName || 'Anonymous Tutor',
-      tutorEmail: tutorEmail || '',
+      tutorName,
+      tutorEmail,
       status: 'open_for_interest',
       interestedStudents: [],
       enrolledStudents: [],
