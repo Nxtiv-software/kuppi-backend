@@ -1571,6 +1571,7 @@ export const createTutorSession = async (req: Request, res: Response) => {
 export const getTutorCreatedSessions = async (req: Request, res: Response) => {
   try {
     const tutorId = (req as AuthenticatedRequest).auth?.userId;
+    const includeCompleted = req.query.includeCompleted === 'true';
     
     if (!tutorId) {
       return res.status(401).json({
@@ -1579,17 +1580,24 @@ export const getTutorCreatedSessions = async (req: Request, res: Response) => {
       });
     }
 
-    console.log('Fetching created sessions for tutor:', tutorId);
+    console.log('Fetching created sessions for tutor:', tutorId, includeCompleted ? '(including completed)' : '(excluding completed)');
 
-    // Find sessions created by this tutor, excluding completed sessions
-    const sessions = await Session.find({
+    // Build query based on includeCompleted parameter
+    const query: any = {
       tutorId,
-      source: 'tutor_created', // Only tutor-created sessions, not poll-based
-      status: { $ne: 'completed' } // Exclude completed sessions
-    })
+      source: 'tutor_created' // Only tutor-created sessions, not poll-based
+    };
+    
+    // Exclude completed sessions unless explicitly requested
+    if (!includeCompleted) {
+      query.status = { $ne: 'completed' };
+    }
+
+    // Find sessions created by this tutor
+    const sessions = await Session.find(query)
     .lean();
 
-    console.log(`Found ${sessions.length} active tutor-created sessions (excluding completed)`);
+    console.log(`Found ${sessions.length} tutor-created sessions ${includeCompleted ? '(including completed)' : '(excluding completed)'}`);
 
     // Add calculated fields to each session
     const sessionsWithCalculations = sessions.map(session => {
@@ -1616,16 +1624,18 @@ export const getTutorCreatedSessions = async (req: Request, res: Response) => {
     // 1. ready_to_schedule (highest priority)
     // 2. scheduled (with upcoming dates first)
     // 3. open_for_interest (newest first)
+    // 4. completed (most recent first)
     const sortedSessions = sessionsWithCalculations.sort((a, b) => {
       // Define status priority
       const statusPriority: Record<string, number> = {
         'ready_to_schedule': 1,
         'scheduled': 2,
-        'open_for_interest': 3
+        'open_for_interest': 3,
+        'completed': 4
       };
 
-      const aPriority = statusPriority[a.status] || 4;
-      const bPriority = statusPriority[b.status] || 4;
+      const aPriority = statusPriority[a.status] || 5;
+      const bPriority = statusPriority[b.status] || 5;
 
       // If different status priorities, sort by priority
       if (aPriority !== bPriority) {
@@ -1641,6 +1651,11 @@ export const getTutorCreatedSessions = async (req: Request, res: Response) => {
         // If one has date and other doesn't, prioritize the one with date
         if (a.date && !b.date) return -1;
         if (!a.date && b.date) return 1;
+      }
+
+      // For completed sessions, sort by completion date (most recent first)
+      if (a.status === 'completed' && b.status === 'completed') {
+        return new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime();
       }
 
       // For same status or no specific sorting, sort by creation time (newest first)
