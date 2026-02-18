@@ -1,3 +1,4 @@
+require('dotenv').config();
 const mongoose = require('mongoose');
 
 // User schema
@@ -12,7 +13,12 @@ const User = mongoose.model('User', userSchema);
 
 async function checkUser() {
   try {
-    await mongoose.connect('mongodb+srv://nxtivsoftware:smarttutor2025@cluster0.adtzljr.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0');
+    const connectionString = process.env.MONGODB_URI;
+    if (!connectionString) {
+      throw new Error('MONGODB_URI environment variable is not set');
+    }
+    
+    await mongoose.connect(connectionString);
     
     const user = await User.findOne({ email: 'nxtivsoftware@gmail.com' });
     console.log('🔍 Current user state:');
