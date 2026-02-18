@@ -1263,6 +1263,7 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
         
         status: session.status,
         source, // 'poll_based' or 'tutor_created'
+        studentLimitType: session.studentLimitType, // Which limit option was selected
         isEnrolled,
         hasShownInterest,
         interestedStudents: session.interestedStudents || [],
@@ -1450,7 +1451,8 @@ export const createTutorSession = async (req: Request, res: Response) => {
       minStudents,
       schedulingNote,
       expectedDate,
-      expectedTime
+      expectedTime,
+      studentLimitType
     } = req.body;
 
     console.log('📥 Received create session request:', req.body);
@@ -1473,19 +1475,29 @@ export const createTutorSession = async (req: Request, res: Response) => {
       });
     }
 
-    if (maxStudents < 1 || (minStudents && minStudents < 1)) {
-      console.log('❌ Validation failed - invalid student limits');
-      return res.status(400).json({
-        success: false,
-        message: 'Student limits must be positive numbers'
-      });
+    // Validate student limits based on studentLimitType
+    if (studentLimitType === 'limited') {
+      if (!maxStudents || parseInt(maxStudents) < 1) {
+        console.log('❌ Validation failed - maxStudents required for limited type');
+        return res.status(400).json({
+          success: false,
+          message: 'Maximum students must be a positive number when using limited capacity'
+        });
+      }
+    } else if (studentLimitType === 'minimum') {
+      if (!minStudents || parseInt(minStudents) < 1) {
+        console.log('❌ Validation failed - minStudents required for minimum type');
+        return res.status(400).json({
+          success: false,
+          message: 'Minimum students must be a positive number when using minimum capacity'
+        });
+      }
     }
 
     // Get tutor information from Clerk
     const tutorInfo = await userService.getUserInfo(tutorId);
     const tutorName = tutorInfo?.name || tutorInfo?.firstName + ' ' + tutorInfo?.lastName || 'Tutor';
     const tutorEmail = tutorInfo?.email || 'tutor@kuppi.com';
-
     console.log('🚀 Creating tutor session with data:', { 
       title, 
       subject, 
@@ -1504,14 +1516,35 @@ export const createTutorSession = async (req: Request, res: Response) => {
       raw: maxStudents,
       type: typeof maxStudents,
       parsed: parseInt(maxStudents),
-      final: parseInt(maxStudents) || 20
+      studentLimitType
     });
 
     console.log('🔍 minStudents debug:', {
       raw: minStudents,
       type: typeof minStudents,
       parsed: parseInt(minStudents),
-      final: parseInt(minStudents) || 1
+      studentLimitType
+    });
+
+    // Parse student limits based on studentLimitType
+    let finalMaxStudents: number;
+    let finalMinStudents: number;
+
+    if (studentLimitType === 'unlimited') {
+      finalMaxStudents = 999;
+      finalMinStudents = 1;
+    } else if (studentLimitType === 'minimum') {
+      finalMinStudents = parseInt(minStudents);
+      finalMaxStudents = finalMinStudents * 2; // Double the minimum for max
+    } else { // 'limited'
+      finalMaxStudents = parseInt(maxStudents);
+      finalMinStudents = 1;
+    }
+
+    console.log('🔍 Final student limits:', {
+      maxStudents: finalMaxStudents,
+      minStudents: finalMinStudents,
+      studentLimitType
     });
 
     // Create session
@@ -1522,8 +1555,8 @@ export const createTutorSession = async (req: Request, res: Response) => {
       description,
       duration: parseFloat(duration) || 2,
       feePerStudent: parseFloat(feePerStudent),
-      maxStudents: parseInt(maxStudents) || 20,
-      minStudents: parseInt(minStudents) || 1,
+      maxStudents: finalMaxStudents,
+      minStudents: finalMinStudents,
       tutorId,
       tutorName,
       tutorEmail,
@@ -1533,7 +1566,8 @@ export const createTutorSession = async (req: Request, res: Response) => {
       schedulingNote,
       createdAt: new Date(),
       isScheduled: false,
-      source: 'tutor_created' // Mark as tutor-created vs poll-based
+      source: 'tutor_created', // Mark as tutor-created vs poll-based
+      studentLimitType: studentLimitType || 'limited' // Track which limit option was selected
     };
 
     // Add expected date/time if provided

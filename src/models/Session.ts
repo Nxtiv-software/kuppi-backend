@@ -49,6 +49,7 @@ export interface ISession extends Document {
   rating?: number;
   reason?: string; // cancellation reason
   source?: 'poll_based' | 'tutor_created'; // Track session origin
+  studentLimitType?: 'limited' | 'minimum' | 'unlimited'; // Track which limit option was selected
   isScheduled?: boolean; // Explicit scheduling flag
   createdAt: Date;
   updatedAt: Date;
@@ -227,6 +228,11 @@ const SessionSchema = new Schema<ISession>({
     type: String,
     enum: ['poll_based', 'tutor_created'],
     default: 'poll_based'
+  },
+  studentLimitType: {
+    type: String,
+    enum: ['limited', 'minimum', 'unlimited'],
+    required: false
   },
   isScheduled: {
     type: Boolean,
