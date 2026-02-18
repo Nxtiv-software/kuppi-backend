@@ -1196,6 +1196,17 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
       const isScheduled = session.isScheduled || false;
       const enrolledCount = session.enrolledCount || session.enrolledStudents?.length || 0;
       const availableSpots = Math.max(0, session.maxStudents - enrolledCount);
+      const interestedCount = session.interestedStudents?.length || 0;
+      
+      // Calculate display values that switch based on scheduling status
+      const displayCount = isScheduled 
+        ? `${enrolledCount}/${session.maxStudents} enrolled`
+        : `${interestedCount} interested`;
+      const displayLabel = isScheduled 
+        ? `${availableSpots} spots left`
+        : `${interestedCount} needed`;
+      
+      console.log(`📋 Formatting session ${session._id}: maxStudents=${session.maxStudents}, displayCount="${displayCount}", displayLabel="${displayLabel}"`);
 
       return {
         id: session._id,
@@ -1242,6 +1253,12 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
         maxStudents: session.maxStudents,
         availableSpots: availableSpots,
         spotsLeft: availableSpots,
+        
+        // Display values (switches automatically based on scheduling status)
+        displayCount: displayCount,
+        displayLabel: displayLabel,
+        enrolledStudentsCount: enrolledCount,
+        interestedStudentsCount: interestedCount,
         
         status: session.status,
         source, // 'poll_based' or 'tutor_created'
@@ -1482,6 +1499,20 @@ export const createTutorSession = async (req: Request, res: Response) => {
       expectedTime
     });
 
+    console.log('🔍 maxStudents debug:', {
+      raw: maxStudents,
+      type: typeof maxStudents,
+      parsed: parseInt(maxStudents),
+      final: parseInt(maxStudents) || 20
+    });
+
+    console.log('🔍 minStudents debug:', {
+      raw: minStudents,
+      type: typeof minStudents,
+      parsed: parseInt(minStudents),
+      final: parseInt(minStudents) || 1
+    });
+
     // Create session
     const sessionData: any = {
       title,
@@ -1564,6 +1595,8 @@ export const getTutorCreatedSessions = async (req: Request, res: Response) => {
       const enrolledCount = session.enrolledStudents?.length || 0;
       const interestedCount = session.interestedStudents?.length || 0;
       const isScheduled = session.isScheduled || session.status === 'scheduled';
+      
+      console.log(`📊 Session ${session._id}: maxStudents=${session.maxStudents}, minStudents=${session.minStudents}, enrolled=${enrolledCount}, interested=${interestedCount}`);
       
       return {
         ...session,
