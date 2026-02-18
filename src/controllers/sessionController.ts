@@ -481,6 +481,7 @@ export const getMyScheduledSessions = async (req: Request, res: Response) => {
         // Provide clean student count instead of raw IDs
         currentStudents: enrolledStudentsWithInfo.length,
         enrolledStudentsCount: enrolledStudentsWithInfo.length,
+        totalRevenue: enrolledStudentsWithInfo.length * session.feePerStudent, // Total revenue from enrolled students
         // Provide clean student information without exposing raw user IDs
         enrolledStudentsInfo: enrolledStudentsWithInfo,
         status: session.status,
@@ -1467,11 +1468,20 @@ export const getTutorCreatedSessions = async (req: Request, res: Response) => {
 
     console.log(`Found ${sessions.length} active tutor-created sessions (excluding completed)`);
 
+    // Add calculated fields to each session
+    const sessionsWithCalculations = sessions.map(session => ({
+      ...session,
+      enrolledStudentsCount: session.enrolledStudents?.length || 0,
+      interestedStudentsCount: session.interestedStudents?.length || 0,
+      totalRevenue: (session.enrolledStudents?.length || 0) * (session.feePerStudent || 0),
+      availableSpots: session.maxStudents - (session.enrolledStudents?.length || 0)
+    }));
+
     // Sort sessions by priority:
     // 1. ready_to_schedule (highest priority)
     // 2. scheduled (with upcoming dates first)
     // 3. open_for_interest (newest first)
-    const sortedSessions = sessions.sort((a, b) => {
+    const sortedSessions = sessionsWithCalculations.sort((a, b) => {
       // Define status priority
       const statusPriority: Record<string, number> = {
         'ready_to_schedule': 1,
