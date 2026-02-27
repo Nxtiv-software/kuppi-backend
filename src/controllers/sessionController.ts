@@ -365,8 +365,12 @@ export const scheduleSession = async (req: Request, res: Response) => {
       duration: Number(duration),
       feePerStudent: Number(feePerStudent),
       maxStudents: actualMaxStudents, // ✅ Use poll's maxStudents instead of request body
+      minStudents: 1,
       enrolledStudents: poll.votes || [], // Auto-enroll all voters
-      status: 'upcoming', // Explicitly set status
+      status: 'scheduled', // Set as scheduled since we're scheduling it now
+      isScheduled: true, // ✅ Mark as scheduled so date/time display correctly
+      source: 'poll_based', // Mark source
+      studentLimitType: 'limited', // Poll-based sessions are limited by maxStudents
       meetingLink,
       materials: materials || [],
       notes
@@ -1535,6 +1539,8 @@ export const createTutorSession = async (req: Request, res: Response) => {
       tutorName,
       tutorEmail,
       feePerStudent,
+      feePerStudentType: typeof feePerStudent,
+      feePerStudentParsed: parseFloat(feePerStudent),
       maxStudents,
       minStudents,
       expectedDate,
@@ -1632,7 +1638,8 @@ export const createTutorSession = async (req: Request, res: Response) => {
       expectedDate: session.expectedDate,
       expectedTime: session.expectedTime,
       maxStudents: session.maxStudents,
-      minStudents: session.minStudents
+      minStudents: session.minStudents,
+      studentLimitType: session.studentLimitType
     }).catch(err => {
       console.error('Failed to send tutor session created email:', err);
       // Don't fail the request if email fails

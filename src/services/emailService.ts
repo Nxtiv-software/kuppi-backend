@@ -417,6 +417,7 @@ export const sendTutorSessionCreatedEmail = async (sessionData: {
   expectedTime?: string;
   maxStudents: number;
   minStudents?: number;
+  studentLimitType?: string;
 }): Promise<boolean> => {
   try {
     console.log('📧 ===== SENDING TUTOR SESSION CREATED EMAIL =====');
@@ -482,10 +483,10 @@ export const sendTutorSessionCreatedEmail = async (sessionData: {
               ${dateInfo}
               <div class="info-row">
                 <span class="label">Capacity:</span> 
-                ${sessionData.maxStudents >= 100 
+                ${sessionData.maxStudents >= 100 || (sessionData.studentLimitType && sessionData.studentLimitType === 'unlimited')
                   ? '<span class="badge">Unlimited Seats</span>' 
-                  : sessionData.minStudents 
-                    ? `Minimum ${sessionData.minStudents} students required` 
+                  : sessionData.studentLimitType === 'minimum'
+                    ? `Minimum ${sessionData.minStudents || 1} students required` 
                     : `Maximum ${sessionData.maxStudents} students`}
               </div>
             </div>
