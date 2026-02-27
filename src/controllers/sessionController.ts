@@ -9,7 +9,12 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { userService } from '../services/userService';
-import { sendSessionScheduledEmail } from '../services/emailService';
+import { 
+  sendSessionScheduledEmail, 
+  sendTutorSessionCreatedEmail, 
+  sendTutorSessionScheduledEmail,
+  sendAvailableSpacesEmail 
+} from '../services/emailService';
 
 // Get session requests for tutor (polls with >50% votes)
 export const getSessionRequests = async (req: Request, res: Response) => {
@@ -400,6 +405,30 @@ export const scheduleSession = async (req: Request, res: Response) => {
       console.error('Failed to send session scheduled email:', err);
       // Don't fail the request if email fails
     });
+
+    // 📧 Send email to non-voters if there are available spaces
+    const availableSpots = actualMaxStudents - session.enrolledStudents.length;
+    if (availableSpots > 0) {
+      console.log(`📧 Session has ${availableSpots} available spots - notifying non-voters`);
+      sendAvailableSpacesEmail({
+        title: session.title,
+        subject: session.subject,
+        topic: session.topic,
+        description: session.description,
+        date: session.date!,
+        time: session.time!,
+        duration: session.duration,
+        feePerStudent: session.feePerStudent,
+        tutorName: session.tutorName,
+        enrolledCount: session.enrolledStudents.length,
+        maxStudents: actualMaxStudents,
+        availableSpots: availableSpots,
+        voterIds: session.enrolledStudents
+      }).catch(err => {
+        console.error('Failed to send available spaces email:', err);
+        // Don't fail the request if email fails
+      });
+    }
 
     res.status(201).json({
       success: true,
@@ -1591,6 +1620,24 @@ export const createTutorSession = async (req: Request, res: Response) => {
       data: session
     });
 
+    // 📧 Send email notification to all students about new session
+    sendTutorSessionCreatedEmail({
+      title: session.title,
+      subject: session.subject,
+      topic: session.topic,
+      description: session.description,
+      duration: session.duration,
+      feePerStudent: session.feePerStudent,
+      tutorName: session.tutorName,
+      expectedDate: session.expectedDate,
+      expectedTime: session.expectedTime,
+      maxStudents: session.maxStudents,
+      minStudents: session.minStudents
+    }).catch(err => {
+      console.error('Failed to send tutor session created email:', err);
+      // Don't fail the request if email fails
+    });
+
   } catch (error: any) {
     console.error('❌ Error creating tutor session:', error);
     res.status(500).json({
@@ -1921,6 +1968,26 @@ export const scheduleTutorSession = async (req: Request, res: Response) => {
         isUnlimited: isUnlimitedSession
       }
     });
+
+    // 📧 Send email notification to interested students who are now enrolled
+    if (session.enrolledStudents && session.enrolledStudents.length > 0) {
+      sendTutorSessionScheduledEmail({
+        title: session.title,
+        subject: session.subject,
+        topic: session.topic,
+        description: session.description,
+        date: session.date!,
+        time: session.time!,
+        duration: session.duration,
+        feePerStudent: session.feePerStudent,
+        tutorName: session.tutorName,
+        meetingLink: session.meetingLink,
+        interestedStudentIds: session.enrolledStudents
+      }).catch(err => {
+        console.error('Failed to send tutor session scheduled email:', err);
+        // Don't fail the request if email fails
+      });
+    }
 
   } catch (error: any) {
     console.error('❌ Error scheduling tutor session:', error);
