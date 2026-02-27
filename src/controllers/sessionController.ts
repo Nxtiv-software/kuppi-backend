@@ -378,10 +378,17 @@ export const scheduleSession = async (req: Request, res: Response) => {
 
     await session.save();
     
-    console.log('Session created successfully:', {
+    console.log('✅ Poll-based session created successfully:', {
       sessionId: session._id,
+      status: session.status,
+      isScheduled: session.isScheduled,
+      source: session.source,
       enrolledStudents: session.enrolledStudents,
-      enrolledCount: session.enrolledStudents.length
+      enrolledCount: session.enrolledStudents.length,
+      maxStudents: session.maxStudents,
+      availableSpots: session.maxStudents - session.enrolledStudents.length,
+      date: session.date,
+      time: session.time
     });
 
     // Update poll status
@@ -1115,6 +1122,8 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
     const { subject, level, page = 1, limit = 10 } = req.query;
 
     console.log('📡 Fetching available sessions for browsing...');
+    console.log('📡 User ID:', userId || 'Not authenticated');
+    console.log('📡 Filters:', { subject, level, page, limit });
 
     let query: any = {
       $and: [
@@ -1123,13 +1132,12 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
         // Include:
         {
           $or: [
-            { status: 'upcoming', date: { $gte: new Date() } }, // Poll-based scheduled sessions (future only)
+            { status: 'upcoming', date: { $gte: new Date() } }, // Legacy poll-based sessions (keep for backwards compatibility)
             { status: 'open_for_interest' }, // Tutor-created sessions open for interest
             { status: 'ready_to_schedule' }, // Tutor-created sessions ready to schedule
             { 
-              // Tutor-created scheduled sessions - show until session starts or marked complete
-              status: 'scheduled', 
-              source: 'tutor_created',
+              // ALL scheduled sessions (poll-based + tutor-created) with available spots
+              status: 'scheduled',
               $or: [
                 { date: { $gte: new Date() } }, // Future sessions
                 { date: { $exists: false } } // Not yet scheduled
@@ -1200,6 +1208,11 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
     const total = await Session.countDocuments({
       ...query,
       $expr: { $lt: [{ $size: '$enrolledStudents' }, '$maxStudents'] }
+    });
+
+    console.log(`📊 Found ${sessions.length} available sessions (total: ${total})`);
+    sessions.forEach(session => {
+      console.log(`  - ${session.title}: status=${session.status}, source=${session.source}, enrolled=${session.enrolledCount}/${session.maxStudents}, available=${session.availableSpots}`);
     });
 
     // Get user information for tutors
