@@ -10,6 +10,7 @@ import refreshRouter from "./routes/refreshToken";
 import sessionsRouter from "./routes/sessions";
 import webHookrouter from "./routes/clerkWebhook";
 import clerkSyncRouter from "./routes/clerkSync";
+import adminRouter from "./routes/admin";
 
 const app = express();
 
@@ -65,6 +66,7 @@ app.use('/polls', router);
 app.use('/sessions', sessionsRouter);
 app.use('/api/user', userRouter);
 app.use('/api/clerk-sync', clerkSyncRouter);
+app.use('/api/admin', adminRouter);
 
 app.get('/health', (req: Request, res: Response) => {
   res.json({
@@ -84,7 +86,8 @@ app.get('/api', (req: Request, res: Response) => {
       auth: '/auth',
       login: '/login',
       polls: '/polls',
-      sessions: '/sessions',
+      admin: '/api/admin',
+      user: '/api/user',
       // clerk: '/clerk', // Commented out until implemented
       health: '/health'
     }
