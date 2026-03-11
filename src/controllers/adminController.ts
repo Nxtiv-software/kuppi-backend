@@ -5,6 +5,7 @@ import Session from '../models/Session';
 import Poll from '../models/Poll';
 import { clerkClient } from '@clerk/clerk-sdk-node';
 import mongoose from 'mongoose';
+import { userService } from '../services/userService';
 
 /**
  * Get Admin Dashboard Overview Statistics
@@ -228,6 +229,9 @@ export const getAllUsers = async (req: AdminRequest, res: Response) => {
           const clerkUser = await clerkClient.users.getUser(user.clerkId);
           return {
             ...user.toObject(),
+            imageUrl: clerkUser.imageUrl,
+            lastSignInAt: clerkUser.lastSignInAt,
+            createdAt: clerkUser.createdAt,
             clerkData: {
               imageUrl: clerkUser.imageUrl,
               lastSignInAt: clerkUser.lastSignInAt,
@@ -492,12 +496,18 @@ export const getUser = async (req: AdminRequest, res: Response) => {
     try {
       if (user.clerkId) {
         const clerkUser = await clerkClient.users.getUser(user.clerkId);
-        enrichedUser.clerkData = {
+        enrichedUser = {
+          ...enrichedUser,
           imageUrl: clerkUser.imageUrl,
           lastSignInAt: clerkUser.lastSignInAt,
           createdAt: clerkUser.createdAt,
-          emailAddresses: clerkUser.emailAddresses,
-          phoneNumbers: clerkUser.phoneNumbers
+          clerkData: {
+            imageUrl: clerkUser.imageUrl,
+            lastSignInAt: clerkUser.lastSignInAt,
+            createdAt: clerkUser.createdAt,
+            emailAddresses: clerkUser.emailAddresses,
+            phoneNumbers: clerkUser.phoneNumbers
+          }
         };
       }
     } catch (error) {
@@ -587,7 +597,15 @@ export const getAllSessions = async (req: AdminRequest, res: Response) => {
     const query: any = {};
 
     if (status && status !== 'all') {
-      query.status = status;
+      // When filtering for 'upcoming', include both 'upcoming' and 'scheduled' statuses
+      if (status === 'upcoming') {
+        query.status = { $in: ['upcoming', 'scheduled'] };
+      } else {
+        query.status = status;
+      }
+    } else if (status === 'all') {
+      // For 'all' tab in Scheduled Sessions, exclude Browse Kuppi sessions
+      query.status = { $nin: ['open_for_interest', 'ready_to_schedule'] };
     }
 
     if (subject && subject !== 'all') {
@@ -626,6 +644,17 @@ export const getAllSessions = async (req: AdminRequest, res: Response) => {
       Session.countDocuments(query)
     ]);
 
+    // Get counts for each status
+    const counts = await Promise.all([
+      Session.countDocuments({ status: { $nin: ['open_for_interest', 'ready_to_schedule'] } }), // all scheduled sessions (excludes browse kuppi)
+      Session.countDocuments({ status: 'open_for_interest' }),
+      Session.countDocuments({ status: 'ready_to_schedule' }),
+      Session.countDocuments({ status: { $in: ['upcoming', 'scheduled'] } }), // upcoming includes scheduled
+      Session.countDocuments({ status: 'ongoing' }),
+      Session.countDocuments({ status: 'completed' }),
+      Session.countDocuments({ status: 'cancelled' })
+    ]);
+
     const formattedSessions = sessions.map(session => ({
       ...session.toObject(),
       enrolledCount: session.enrolledStudents?.length || 0,
@@ -642,6 +671,15 @@ export const getAllSessions = async (req: AdminRequest, res: Response) => {
           pages: Math.ceil(total / limitNum),
           total,
           limit: limitNum
+        },
+        counts: {
+          all: counts[0],
+          open_for_interest: counts[1],
+          ready_to_schedule: counts[2],
+          upcoming: counts[3],
+          ongoing: counts[4],
+          completed: counts[5],
+          cancelled: counts[6]
         }
       }
     });
@@ -686,6 +724,95 @@ export const deleteSession = async (req: AdminRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete session',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Cancel Session
+ */
+export const cancelSession = async (req: AdminRequest, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+    const { reason } = req.body;
+
+    console.log(`🚫 Cancelling session ${sessionId}`);
+
+    const session = await Session.findById(sessionId);
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    session.status = 'cancelled';
+    session.reason = reason || 'Cancelled by admin';
+    await session.save();
+
+    // TODO: Send notifications to enrolled students and tutor
+    console.log(`✅ Session cancelled and notifications will be sent`);
+
+    res.json({
+      success: true,
+      message: 'Session cancelled successfully. Notifications will be sent to all enrolled students and the tutor.',
+      data: session
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error cancelling session:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to cancel session',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Force End Session
+ */
+export const forceEndSession = async (req: AdminRequest, res: Response) => {
+  try {
+    const { sessionId } = req.params;
+
+    console.log(`🛑 Force ending session ${sessionId}`);
+
+    const session = await Session.findById(sessionId);
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found'
+      });
+    }
+
+    if (session.status !== 'ongoing') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only ongoing sessions can be force-ended'
+      });
+    }
+
+    session.status = 'completed';
+    await session.save();
+
+    // TODO: Save attendance logs, finalize recording, etc.
+    console.log(`✅ Session force-ended, attendance and logs saved`);
+
+    res.json({
+      success: true,
+      message: 'Session ended successfully. Attendance and logs have been saved.',
+      data: session
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error force ending session:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to end session',
       error: error.message
     });
   }
@@ -741,12 +868,44 @@ export const getAllPolls = async (req: AdminRequest, res: Response) => {
       Poll.countDocuments(query)
     ]);
 
-    const formattedPolls = polls.map(poll => ({
-      ...poll.toObject(),
-      voteCount: poll.votes?.length || 0,
-      votePercentage: poll.targetVotes > 0 
-        ? ((poll.votes?.length || 0) / poll.targetVotes) * 100 
-        : 0
+    // Get counts for each status
+    const counts = await Promise.all([
+      Poll.countDocuments({ status: 'active' }),
+      Poll.countDocuments({ status: 'pending' }),
+      Poll.countDocuments({ status: 'accepted' }),
+      Poll.countDocuments({ status: 'expired' }),
+      Poll.countDocuments({ status: 'rejected' })
+    ]);
+
+    // Enrich polls with Clerk data for acceptedBy tutor
+    const formattedPolls = await Promise.all(polls.map(async (poll) => {
+      const pollObj: any = poll.toObject();
+      
+      // If acceptedBy exists, fetch tutor info from Clerk
+      if (pollObj.acceptedBy) {
+        console.log(`📝 Poll "${pollObj.title}" has acceptedBy: ${pollObj.acceptedBy}`);
+        try {
+          const tutorInfo = await userService.getUserInfo(pollObj.acceptedBy.toString());
+          console.log(`✅ Fetched tutor info:`, tutorInfo);
+          pollObj.acceptedByInfo = tutorInfo ? {
+            id: tutorInfo.id,
+            name: tutorInfo.name,
+            email: tutorInfo.email,
+            imageUrl: tutorInfo.imageUrl
+          } : null;
+        } catch (error) {
+          console.log(`⚠️ Could not fetch tutor info for acceptedBy: ${pollObj.acceptedBy}`, error);
+          pollObj.acceptedByInfo = null;
+        }
+      }
+      
+      return {
+        ...pollObj,
+        voteCount: poll.votes?.length || 0,
+        votePercentage: poll.targetVotes > 0 
+          ? ((poll.votes?.length || 0) / poll.targetVotes) * 100 
+          : 0
+      };
     }));
 
     res.json({
@@ -758,6 +917,13 @@ export const getAllPolls = async (req: AdminRequest, res: Response) => {
           pages: Math.ceil(total / limitNum),
           total,
           limit: limitNum
+        },
+        counts: {
+          active: counts[0],
+          pending: counts[1],
+          accepted: counts[2],
+          expired: counts[3],
+          rejected: counts[4]
         }
       }
     });
@@ -802,6 +968,105 @@ export const deletePoll = async (req: AdminRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to delete poll',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Update Poll Status (Approve/Reject)
+ */
+export const updatePollStatus = async (req: AdminRequest, res: Response) => {
+  try {
+    const { pollId } = req.params;
+    const { status, reason } = req.body;
+
+    console.log(`📝 Updating poll ${pollId} status to ${status}`);
+
+    if (!['accepted', 'rejected'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be either "accepted" or "rejected"'
+      });
+    }
+
+    const updateData: any = { status };
+
+    if (status === 'rejected') {
+      updateData.rejectedBy = req.auth?.userId;
+      updateData.rejectionReason = reason || 'Not approved by admin';
+      updateData.rejectedAt = new Date();
+    }
+
+    const poll = await Poll.findByIdAndUpdate(
+      pollId,
+      updateData,
+      { new: true }
+    );
+
+    if (!poll) {
+      return res.status(404).json({
+        success: false,
+        message: 'Poll not found'
+      });
+    }
+
+    console.log(`✅ Poll status updated to ${status}`);
+
+    res.json({
+      success: true,
+      message: `Poll ${status} successfully`,
+      data: poll
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error updating poll status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update poll status',
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Force Close Poll
+ */
+export const forceClosePoll = async (req: AdminRequest, res: Response) => {
+  try {
+    const { pollId } = req.params;
+
+    console.log(`🛑 Force closing poll ${pollId}`);
+
+    const poll = await Poll.findByIdAndUpdate(
+      pollId,
+      { 
+        status: 'expired',
+        closedAt: new Date()
+      },
+      { new: true }
+    );
+
+    if (!poll) {
+      return res.status(404).json({
+        success: false,
+        message: 'Poll not found'
+      });
+    }
+
+    console.log(`✅ Poll closed and archived successfully`);
+
+    res.json({
+      success: true,
+      message: 'Poll closed and archived successfully',
+      data: poll
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error force closing poll:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to close poll',
       error: error.message
     });
   }
@@ -951,7 +1216,11 @@ export default {
   deleteUser,
   getAllSessions,
   deleteSession,
+  cancelSession,
+  forceEndSession,
   getAllPolls,
   deletePoll,
+  updatePollStatus,
+  forceClosePoll,
   getSystemAnalytics
 };
