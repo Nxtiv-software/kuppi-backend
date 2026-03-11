@@ -11,8 +11,12 @@ import {
   deleteUser,
   getAllSessions,
   deleteSession,
+  cancelSession,
+  forceEndSession,
   getAllPolls,
   deletePoll,
+  updatePollStatus,
+  forceClosePoll,
   getSystemAnalytics
 } from '../controllers/adminController';
 
@@ -98,6 +102,20 @@ router.get('/sessions', getAllSessions);
  */
 router.delete('/sessions/:sessionId', deleteSession);
 
+/**
+ * @route   PATCH /api/admin/sessions/:sessionId/cancel
+ * @desc    Cancel a session with reason
+ * @access  Private (Admin only)
+ */
+router.patch('/sessions/:sessionId/cancel', cancelSession);
+
+/**
+ * @route   PATCH /api/admin/sessions/:sessionId/force-end
+ * @desc    Force end an ongoing session
+ * @access  Private (Admin only)
+ */
+router.patch('/sessions/:sessionId/force-end', forceEndSession);
+
 // ==================== POLL MANAGEMENT ====================
 
 /**
@@ -113,5 +131,19 @@ router.get('/polls', getAllPolls);
  * @access  Private (Admin only)
  */
 router.delete('/polls/:pollId', deletePoll);
+
+/**
+ * @route   PATCH /api/admin/polls/:pollId/status
+ * @desc    Update poll status (accept/reject)
+ * @access  Private (Admin only)
+ */
+router.patch('/polls/:pollId/status', updatePollStatus);
+
+/**
+ * @route   PATCH /api/admin/polls/:pollId/force-close
+ * @desc    Force close an active poll
+ * @access  Private (Admin only)
+ */
+router.patch('/polls/:pollId/force-close', forceClosePoll);
 
 export default router;
