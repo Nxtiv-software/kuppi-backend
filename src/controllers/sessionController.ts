@@ -599,8 +599,8 @@ export const getMySessionsAsStudent = async (req: Request, res: Response) => {
       console.log('🗳️ Found poll-based sessions:', pollBasedSessions.length);
     }
 
-    // Method 3: Find tutor-created sessions where student showed interest OR enrolled and session is scheduled
-    // Include unlimited sessions that are scheduled but still accepting enrollments (open_for_interest + isScheduled)
+    // Method 3: Find tutor-created sessions where student is enrolled (already scheduled sessions)
+    // Note: open_for_interest and ready_to_schedule sessions stay in Browse page, not My Sessions
     const interestedScheduledSessions = await Session.find({
       $and: [
         {
@@ -610,10 +610,15 @@ export const getMySessionsAsStudent = async (req: Request, res: Response) => {
           ]
         },
         {
-          $or: [
-            { status: { $in: ['scheduled', 'upcoming', 'completed'] } }, // Include upcoming
-            { status: 'open_for_interest', isScheduled: true } // Unlimited scheduled sessions
-          ]
+          // Only include SCHEDULED sessions - sessions still gathering interest stay in Browse
+          status: { 
+            $in: [
+              'scheduled',          // Sessions that have been scheduled
+              'upcoming',           // Upcoming sessions
+              'ongoing',            // Currently happening sessions
+              'completed'           // Completed sessions (for history)
+            ] 
+          }
         },
         { pollId: { $exists: false } } // Only tutor-created sessions
       ]
@@ -1148,11 +1153,11 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
       ]
     };
 
-    // If user is authenticated, filter based on enrollment only
-    // IMPORTANT: Do NOT filter by interestedStudents - students can still see and join after showing interest
-    // Only hide sessions where user is already enrolled
+    // If user is authenticated, only filter out enrolled students from scheduled sessions
+    // Students who showed interest should still see the session in Browse until it's scheduled
     const userParticipationFilter = userId ? {
-      enrolledStudents: { $ne: userId } // Not enrolled
+      enrolledStudents: { $ne: userId } // Not already enrolled
+      // Note: We do NOT filter by interestedStudents - students need to track sessions they're interested in
     } : {};
 
     // Combine the base query with user participation filter
@@ -1169,7 +1174,7 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
     const limitNum = parseInt(limit.toString());
     const skip = (pageNum - 1) * limitNum;
 
-    // Get sessions that still have available spots
+    // Get sessions that still have available spots OR that the user has already shown interest in
     const sessions = await Session.aggregate([
       {
         $match: query
@@ -1177,13 +1182,52 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
       {
         $addFields: {
           enrolledCount: { $size: '$enrolledStudents' },
+          interestedCount: { 
+            $cond: {
+              if: { $isArray: '$interestedStudents' },
+              then: { $size: '$interestedStudents' },
+              else: 0
+            }
+          },
           availableSpots: { $subtract: ['$maxStudents', { $size: '$enrolledStudents' }] },
-          isFullyBooked: { $gte: [{ $size: '$enrolledStudents' }, '$maxStudents'] }
+          // Check if current user has shown interest or is enrolled
+          userIsParticipating: {
+            $or: [
+              { $in: [userId, { $ifNull: ['$interestedStudents', []] }] },
+              { $in: [userId, { $ifNull: ['$enrolledStudents', []] }] }
+            ]
+          },
+          isFullyBooked: { 
+            $or: [
+              // For scheduled sessions, check enrolled students
+              { $gte: [{ $size: '$enrolledStudents' }, '$maxStudents'] },
+              // For open_for_interest and ready_to_schedule, check interested students
+              {
+                $and: [
+                  { $in: ['$status', ['open_for_interest', 'ready_to_schedule']] },
+                  { $gte: [
+                    { 
+                      $cond: {
+                        if: { $isArray: '$interestedStudents' },
+                        then: { $size: '$interestedStudents' },
+                        else: 0
+                      }
+                    }, 
+                    '$maxStudents'
+                  ]}
+                ]
+              }
+            ]
+          }
         }
       },
       {
         $match: {
-          isFullyBooked: false // Only sessions with available spots
+          // Show sessions that are either not fully booked OR user is already participating
+          $or: [
+            { isFullyBooked: false },
+            { userIsParticipating: true }
+          ]
         }
       },
       {
@@ -1207,7 +1251,43 @@ export const getAvailableSessions = async (req: Request, res: Response) => {
 
     const total = await Session.countDocuments({
       ...query,
-      $expr: { $lt: [{ $size: '$enrolledStudents' }, '$maxStudents'] }
+      $expr: {
+        // Show sessions where: NOT fully booked OR user is participating
+        $or: [
+          // User is participating (interested or enrolled)
+          {
+            $or: [
+              { $in: [userId, { $ifNull: ['$interestedStudents', []] }] },
+              { $in: [userId, { $ifNull: ['$enrolledStudents', []] }] }
+            ]
+          },
+          // Session is not fully booked
+          {
+            $not: {
+              $or: [
+                // For scheduled sessions, check enrolled students
+                { $gte: [{ $size: '$enrolledStudents' }, '$maxStudents'] },
+                // For open_for_interest and ready_to_schedule, check interested students
+                {
+                  $and: [
+                    { $in: ['$status', ['open_for_interest', 'ready_to_schedule']] },
+                    { $gte: [
+                      {
+                        $cond: {
+                          if: { $isArray: '$interestedStudents' },
+                          then: { $size: '$interestedStudents' },
+                          else: 0
+                        }
+                      },
+                      '$maxStudents'
+                    ]}
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
     });
 
     console.log(`📊 Found ${sessions.length} available sessions (total: ${total})`);
