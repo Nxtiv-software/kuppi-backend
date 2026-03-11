@@ -38,7 +38,7 @@ export interface ISession extends Document {
   minStudents?: number; // For tutor-created sessions
   enrolledStudents: (mongoose.Types.ObjectId | string)[];
   interestedStudents?: (mongoose.Types.ObjectId | string)[]; // For tutor-created sessions
-  status: 'upcoming' | 'completed' | 'cancelled' | 'open_for_interest' | 'ready_to_schedule' | 'scheduled';
+  status: 'upcoming' | 'completed' | 'cancelled' | 'open_for_interest' | 'ready_to_schedule' | 'scheduled' | 'ongoing';
   meetingLink?: string;
   whatsappGroupLink?: string; // WhatsApp group link for session communication
   materials?: string[];
@@ -144,7 +144,7 @@ const SessionSchema = new Schema<ISession>({
   interestedStudents: [Schema.Types.Mixed], // For tutor-created sessions
   status: {
     type: String,
-    enum: ['upcoming', 'completed', 'cancelled', 'open_for_interest', 'ready_to_schedule', 'scheduled'],
+    enum: ['upcoming', 'completed', 'cancelled', 'open_for_interest', 'ready_to_schedule', 'scheduled', 'ongoing'],
     default: 'upcoming'
   },
   meetingLink: {
