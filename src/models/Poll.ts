@@ -10,12 +10,16 @@ export interface IPoll extends Document {
   maxStudents: number;
   creator: mongoose.Types.ObjectId | string; // Allow both ObjectId and string
   votes: mongoose.Types.ObjectId[] | string[];
-  status: 'active' | 'completed' | 'scheduled' | 'accepted';
+  status: 'active' | 'completed' | 'scheduled' | 'accepted' | 'pending' | 'rejected' | 'expired';
   targetVotes: number;
   scheduledDate?: Date;
   tutor?: mongoose.Types.ObjectId;
   acceptedBy?: mongoose.Types.ObjectId | string; // Tutor who accepted the request - allow both types
   declinedBy?: (mongoose.Types.ObjectId | string)[]; // Tutors who declined the request
+  rejectedBy?: mongoose.Types.ObjectId | string; // Admin who rejected the poll
+  rejectionReason?: string; // Reason for rejection
+  rejectedAt?: Date; // When the poll was rejected
+  closedAt?: Date; // When the poll was force-closed
   sessionId?: mongoose.Types.ObjectId; // Reference to created session
   createdAt: Date;
   updatedAt: Date;
@@ -88,7 +92,7 @@ const PollSchema: Schema = new Schema({
   }],
   status: {
     type: String,
-    enum: ['active', 'completed', 'scheduled', 'accepted'],
+    enum: ['active', 'completed', 'scheduled', 'accepted', 'pending', 'rejected', 'expired'],
     default: 'active'
   },
   targetVotes: {
@@ -110,6 +114,23 @@ const PollSchema: Schema = new Schema({
     type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String - tutors who declined
     ref: 'User'
   }],
+  rejectedBy: {
+    type: mongoose.Schema.Types.Mixed,
+    ref: 'User',
+    required: false
+  },
+  rejectionReason: {
+    type: String,
+    required: false
+  },
+  rejectedAt: {
+    type: Date,
+    required: false
+  },
+  closedAt: {
+    type: Date,
+    required: false
+  },
   sessionId: {
     type: Schema.Types.ObjectId,
     ref: 'Session'
