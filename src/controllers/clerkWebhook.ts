@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { Webhook } from 'svix';
+import { clerkClient } from '@clerk/clerk-sdk-node';
 import User from '../models/user';
 
 const webhookSecret = process.env.CLERK_WEBHOOK_SECRET;
@@ -87,7 +88,29 @@ const handleUserUpsert = async (clerkUserData: any) => {
     const clerkRole = metadata?.public_metadata?.role || 
                      metadata?.private_metadata?.role || 
                      metadata?.unsafe_metadata?.role;
+    const validRoles = ['student', 'tutor', 'admin'];
+    const hasValidClerkRole = clerkRole && validRoles.includes(clerkRole);
     console.log('🏷️  Clerk role from metadata:', clerkRole);
+
+    // Ensure default role exists in Clerk metadata for newly registered users
+    if (!hasValidClerkRole) {
+      try {
+        const existingPublicMetadata = metadata?.public_metadata && typeof metadata.public_metadata === 'object'
+          ? metadata.public_metadata
+          : {};
+
+        await clerkClient.users.updateUser(clerkId, {
+          publicMetadata: {
+            ...existingPublicMetadata,
+            role: 'student'
+          }
+        });
+
+        console.log('✅ Set default Clerk role to student for user:', clerkId);
+      } catch (clerkError) {
+        console.error('⚠️ Failed to set default Clerk role metadata:', clerkError);
+      }
+    }
 
     if (!primaryEmail) {
       console.error('❌ No primary email found for Clerk user:', clerkId);
@@ -107,9 +130,11 @@ const handleUserUpsert = async (clerkUserData: any) => {
       user.lastSyncedAt = new Date();
       
       // Sync role from Clerk metadata if provided
-      if (clerkRole && ['student', 'tutor', 'admin'].includes(clerkRole)) {
+      if (hasValidClerkRole) {
         user.role = clerkRole;
         console.log('🔄 Updated role from Clerk:', clerkRole);
+      } else {
+        user.role = 'student';
       }
       
       await user.save();
@@ -128,16 +153,18 @@ const handleUserUpsert = async (clerkUserData: any) => {
         user.lastSyncedAt = new Date();
         
         // Sync role from Clerk metadata if provided
-        if (clerkRole && ['student', 'tutor', 'admin'].includes(clerkRole)) {
+        if (hasValidClerkRole) {
           user.role = clerkRole;
           console.log('🔄 Linked user role from Clerk:', clerkRole);
+        } else {
+          user.role = 'student';
         }
         
         await user.save();
         console.log('✅ Linked existing user to Clerk:', user.email, '| Role:', user.role);
       } else {
         // Create new user - determine role
-        const defaultRole = clerkRole && ['student', 'tutor', 'admin'].includes(clerkRole) ? clerkRole : 'student';
+        const defaultRole = hasValidClerkRole ? clerkRole : 'student';
         
         user = await User.create({
           clerkId,
