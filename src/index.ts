@@ -10,8 +10,7 @@ import refreshRouter from "./routes/refreshToken";
 import sessionsRouter from "./routes/sessions";
 import webHookrouter from "./routes/clerkWebhook";
 import clerkSyncRouter from "./routes/clerkSync";
-import adminRouter from "./routes/admin";
-
+import adminRouter from "./routes/admin";import tutorApplicationsRouter from './routes/tutorApplications';
 const app = express();
 
 // Dynamic CORS configuration to allow any localhost port
@@ -67,6 +66,7 @@ app.use('/sessions', sessionsRouter);
 app.use('/api/user', userRouter);
 app.use('/api/clerk-sync', clerkSyncRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/tutor-applications', tutorApplicationsRouter);
 
 app.get('/health', (req: Request, res: Response) => {
   res.json({
