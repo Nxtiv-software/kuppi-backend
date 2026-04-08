@@ -11,6 +11,8 @@ import sessionsRouter from "./routes/sessions";
 import webHookrouter from "./routes/clerkWebhook";
 import clerkSyncRouter from "./routes/clerkSync";
 import adminRouter from "./routes/admin";import tutorApplicationsRouter from './routes/tutorApplications';
+import communicationsRouter from './routes/communications';
+import { startReminderScheduler } from './services/communicationService';
 const app = express();
 
 // Dynamic CORS configuration to allow any localhost port
@@ -57,6 +59,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 connectDB();
+startReminderScheduler();
 
 app.use('/auth', signUpRouter);
 app.use('/auth', refreshRouter);
@@ -66,6 +69,7 @@ app.use('/sessions', sessionsRouter);
 app.use('/api/user', userRouter);
 app.use('/api/clerk-sync', clerkSyncRouter);
 app.use('/api/admin', adminRouter);
+app.use('/api/admin/communications', communicationsRouter);
 app.use('/api/tutor-applications', tutorApplicationsRouter);
 
 app.get('/health', (req: Request, res: Response) => {
