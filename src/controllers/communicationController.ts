@@ -1,8 +1,10 @@
 import { Response } from 'express';
+import mongoose from 'mongoose';
 import { AdminRequest } from '../middlewares/adminAuth';
 import NotificationCampaign from '../models/NotificationCampaign';
 import ReminderRule from '../models/ReminderRule';
 import ReminderRunLog from '../models/ReminderRunLog';
+import UserNotification from '../models/UserNotification';
 import { CreateCommunicationCampaignRequest, CreateReminderRuleRequest } from '../types/communication';
 import {
   createReminderRule,
@@ -64,6 +66,28 @@ export const sendCampaign = async (req: AdminRequest, res: Response) => {
   } catch (error: any) {
     console.error('❌ Error sending campaign:', error);
     res.status(500).json({ success: false, message: 'Failed to send campaign', error: error.message });
+  }
+};
+
+export const deleteCampaign = async (req: AdminRequest, res: Response) => {
+  try {
+    const { campaignId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(campaignId)) {
+      return res.status(400).json({ success: false, message: 'Invalid campaign ID' });
+    }
+
+    const campaign = await NotificationCampaign.findByIdAndDelete(campaignId);
+    if (!campaign) {
+      return res.status(404).json({ success: false, message: 'Campaign not found' });
+    }
+
+    await UserNotification.deleteMany({ campaignId: String(campaignId) });
+
+    res.json({ success: true, message: 'Campaign deleted successfully' });
+  } catch (error: any) {
+    console.error('❌ Error deleting campaign:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete campaign', error: error.message });
   }
 };
 

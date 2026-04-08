@@ -3,6 +3,7 @@ import { requireAuth } from '../middlewares/clerkAuth';
 import { isAdmin } from '../middlewares/adminAuth';
 import {
   createReminder,
+  deleteCampaign,
   getCampaigns,
   getReminderLogs,
   getReminders,
@@ -19,6 +20,7 @@ router.use(isAdmin);
 
 router.get('/campaigns', getCampaigns);
 router.post('/campaigns', sendCampaign);
+router.delete('/campaigns/:campaignId', deleteCampaign);
 
 router.get('/reminders', getReminders);
 router.post('/reminders', createReminder);

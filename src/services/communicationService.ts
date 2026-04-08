@@ -4,6 +4,7 @@ import { sendEmail } from './emailService';
 import NotificationCampaign, { INotificationCampaign } from '../models/NotificationCampaign';
 import ReminderRule, { IReminderRule } from '../models/ReminderRule';
 import ReminderRunLog from '../models/ReminderRunLog';
+import UserNotification from '../models/UserNotification';
 import { CommunicationAudience } from '../types/communication';
 
 const BATCH_SIZE = 40;
@@ -32,6 +33,38 @@ const getEmailsByRole = async (role?: 'student' | 'tutor' | 'admin'): Promise<st
       .filter((user: any) => user.preferences?.notifications?.email !== false)
       .map((user: any) => user.email)
   );
+};
+
+const getAudienceUsers = async (
+  audience: CommunicationAudience,
+  customRecipientEmails: string[] = []
+): Promise<Array<{ userId: string; email: string; role: string }>> => {
+  const query: any = {
+    clerkId: { $exists: true, $ne: null },
+    email: { $exists: true, $ne: '' }
+  };
+
+  if (audience === 'students') query.role = 'student';
+  if (audience === 'tutors') query.role = 'tutor';
+  if (audience === 'admins') query.role = 'admin';
+  if (audience === 'custom') query.email = { $in: dedupeEmails(customRecipientEmails) };
+
+  const users = await User.find(query).select('clerkId email role preferences.notifications.push').lean();
+
+  const dedupe = new Map<string, { userId: string; email: string; role: string }>();
+  for (const user of users as any[]) {
+    const userId = String(user.clerkId || '').trim();
+    const email = String(user.email || '').trim().toLowerCase();
+    const role = String(user.role || 'student').trim();
+    const pushEnabled = user?.preferences?.notifications?.push !== false;
+
+    if (!pushEnabled || !userId || !email) continue;
+    if (!dedupe.has(userId)) {
+      dedupe.set(userId, { userId, email, role });
+    }
+  }
+
+  return Array.from(dedupe.values());
 };
 
 export const getAudienceEmails = async (
@@ -85,6 +118,7 @@ export const sendCampaignToAudience = async (input: {
   createdBy?: string;
 }) => {
   const recipients = await getAudienceEmails(input.audience, input.customRecipientEmails || []);
+  const audienceUsers = await getAudienceUsers(input.audience, input.customRecipientEmails || []);
 
   const campaign = await NotificationCampaign.create({
     title: input.title,
@@ -111,6 +145,7 @@ export const sendCampaignToAudience = async (input: {
     return {
       campaign,
       recipients,
+      audienceUsers,
       deliveredCount: 0,
       failedCount: 0
     };
@@ -146,9 +181,32 @@ export const sendCampaignToAudience = async (input: {
     }
   });
 
+  if (audienceUsers.length > 0) {
+    await UserNotification.insertMany(
+      audienceUsers.map((user) => ({
+        userId: user.userId,
+        email: user.email,
+        role: user.role,
+        title: input.title,
+        message: input.message,
+        audience: input.audience,
+        channel: 'in_app',
+        status: 'unread',
+        actionUrl: input.actionUrl,
+        campaignId: String(campaign._id),
+        metadata: {
+          createdBy: input.createdBy || null,
+          recipientEmail: user.email
+        }
+      })),
+      { ordered: false }
+    );
+  }
+
   return {
     campaign: await NotificationCampaign.findById(campaign._id),
     recipients,
+    audienceUsers,
     deliveredCount,
     failedCount
   };
