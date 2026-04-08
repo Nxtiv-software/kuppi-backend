@@ -6,6 +6,7 @@ import Poll from '../models/Poll';
 import { clerkClient } from '@clerk/clerk-sdk-node';
 import mongoose from 'mongoose';
 import { userService } from '../services/userService';
+import { createNotificationForAllAdmins } from '../services/adminNotificationService';
 
 /**
  * Get Admin Dashboard Overview Statistics
@@ -751,6 +752,30 @@ export const cancelSession = async (req: AdminRequest, res: Response) => {
     session.status = 'cancelled';
     session.reason = reason || 'Cancelled by admin';
     await session.save();
+    const sessionDocId = String(session._id);
+
+    try {
+      await createNotificationForAllAdmins(
+        {
+          title: 'Session Cancelled by Admin',
+          message: `${session.title} has been cancelled.`,
+          category: 'session',
+          severity: 'warning',
+          sourceType: 'Session',
+          sourceId: sessionDocId,
+          actionUrl: `/admin?tab=sessions&sessionId=${sessionDocId}`,
+          metadata: {
+            sessionId: sessionDocId,
+            title: session.title,
+            status: session.status,
+            reason: session.reason
+          }
+        },
+        { excludeAdminId: req.auth?.userId }
+      );
+    } catch (notificationError) {
+      console.error('⚠️ Failed to create admin notification for session cancellation:', notificationError);
+    }
 
     // TODO: Send notifications to enrolled students and tutor
     console.log(`✅ Session cancelled and notifications will be sent`);
@@ -798,6 +823,29 @@ export const forceEndSession = async (req: AdminRequest, res: Response) => {
 
     session.status = 'completed';
     await session.save();
+  const sessionDocId = String(session._id);
+
+    try {
+      await createNotificationForAllAdmins(
+        {
+          title: 'Session Force Ended',
+          message: `${session.title} was force-ended by an admin.`,
+          category: 'session',
+          severity: 'warning',
+          sourceType: 'Session',
+          sourceId: sessionDocId,
+          actionUrl: `/admin?tab=sessions&sessionId=${sessionDocId}`,
+          metadata: {
+            sessionId: sessionDocId,
+            title: session.title,
+            status: session.status
+          }
+        },
+        { excludeAdminId: req.auth?.userId }
+      );
+    } catch (notificationError) {
+      console.error('⚠️ Failed to create admin notification for force-ended session:', notificationError);
+    }
 
     // TODO: Save attendance logs, finalize recording, etc.
     console.log(`✅ Session force-ended, attendance and logs saved`);
@@ -1012,6 +1060,33 @@ export const updatePollStatus = async (req: AdminRequest, res: Response) => {
     }
 
     console.log(`✅ Poll status updated to ${status}`);
+    const pollIdAsString = String(poll._id);
+
+    try {
+      await createNotificationForAllAdmins(
+        {
+          title: status === 'accepted' ? 'Poll Accepted by Admin' : 'Poll Rejected by Admin',
+          message:
+            status === 'accepted'
+              ? `${poll.title} has been accepted.`
+              : `${poll.title} has been rejected.`,
+          category: 'poll',
+          severity: status === 'accepted' ? 'info' : 'warning',
+          sourceType: 'Poll',
+          sourceId: pollIdAsString,
+          actionUrl: `/admin?tab=polls&pollId=${pollIdAsString}`,
+          metadata: {
+            pollId: pollIdAsString,
+            title: poll.title,
+            status: poll.status,
+            reason: reason || null
+          }
+        },
+        { excludeAdminId: req.auth?.userId }
+      );
+    } catch (notificationError) {
+      console.error('⚠️ Failed to create admin notification for poll status update:', notificationError);
+    }
 
     res.json({
       success: true,
@@ -1055,6 +1130,29 @@ export const forceClosePoll = async (req: AdminRequest, res: Response) => {
     }
 
     console.log(`✅ Poll closed and archived successfully`);
+    const pollIdAsString = String(poll._id);
+
+    try {
+      await createNotificationForAllAdmins(
+        {
+          title: 'Poll Force Closed',
+          message: `${poll.title} was force-closed by an admin.`,
+          category: 'poll',
+          severity: 'warning',
+          sourceType: 'Poll',
+          sourceId: pollIdAsString,
+          actionUrl: `/admin?tab=polls&pollStatus=expired&pollId=${pollIdAsString}`,
+          metadata: {
+            pollId: pollIdAsString,
+            title: poll.title,
+            status: poll.status,
+            closedAt: poll.closedAt
+          }
+        }
+      );
+    } catch (notificationError) {
+      console.error('⚠️ Failed to create admin notification for force-closed poll:', notificationError);
+    }
 
     res.json({
       success: true,
