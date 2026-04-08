@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import User from '../models/user';
+import { createNotificationForAllAdmins } from './adminNotificationService';
 
 // Initialize Resend client
 const resend = new Resend(process.env.RESEND_API_KEY);
@@ -31,6 +32,26 @@ export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
 
     if (error) {
       console.error('❌ Email send error:', error);
+
+      try {
+        await createNotificationForAllAdmins({
+          title: 'Email Delivery Failed',
+          message: `Email delivery failed for subject: ${subject}`,
+          category: 'integration',
+          severity: 'critical',
+          sourceType: 'Email',
+          actionUrl: '/admin?tab=notifications',
+          metadata: {
+            provider: 'resend',
+            subject,
+            recipients,
+            error
+          }
+        });
+      } catch (notificationError) {
+        console.error('⚠️ Failed to create admin notification for email delivery error:', notificationError);
+      }
+
       return false;
     }
 
@@ -39,6 +60,26 @@ export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
 
   } catch (error) {
     console.error('❌ Failed to send email:', error);
+
+    try {
+      await createNotificationForAllAdmins({
+        title: 'Email Service Exception',
+        message: `Email service encountered an exception while sending subject: ${options.subject}`,
+        category: 'integration',
+        severity: 'critical',
+        sourceType: 'Email',
+        actionUrl: '/admin?tab=notifications',
+        metadata: {
+          provider: 'resend',
+          subject: options.subject,
+          recipients: Array.isArray(options.to) ? options.to : [options.to],
+          error
+        }
+      });
+    } catch (notificationError) {
+      console.error('⚠️ Failed to create admin notification for email service exception:', notificationError);
+    }
+
     return false;
   }
 };
