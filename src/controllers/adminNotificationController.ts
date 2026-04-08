@@ -197,3 +197,78 @@ export const markAllNotificationsAsRead = async (req: AdminRequest, res: Respons
     });
   }
 };
+
+export const deleteAdminNotification = async (req: AdminRequest, res: Response) => {
+  try {
+    const adminId = req.auth?.userId;
+    const { notificationId } = req.params;
+
+    if (!adminId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(notificationId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid notification ID'
+      });
+    }
+
+    const notification = await AdminNotification.findOneAndDelete({ _id: notificationId, adminId });
+
+    if (!notification) {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Notification deleted successfully'
+    });
+  } catch (error: any) {
+    console.error('❌ Error deleting admin notification:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete notification',
+      error: error.message
+    });
+  }
+};
+
+export const deleteAllReadAdminNotifications = async (req: AdminRequest, res: Response) => {
+  try {
+    const adminId = req.auth?.userId;
+
+    if (!adminId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required'
+      });
+    }
+
+    const result = await AdminNotification.deleteMany({
+      adminId,
+      status: 'read'
+    });
+
+    res.json({
+      success: true,
+      message: 'Read notifications deleted successfully',
+      data: {
+        deletedCount: result.deletedCount || 0
+      }
+    });
+  } catch (error: any) {
+    console.error('❌ Error deleting read admin notifications:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete read notifications',
+      error: error.message
+    });
+  }
+};

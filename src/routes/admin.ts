@@ -23,7 +23,9 @@ import {
   getAdminNotifications,
   getUnreadNotificationCount,
   markNotificationAsRead,
-  markAllNotificationsAsRead
+  markAllNotificationsAsRead,
+  deleteAdminNotification,
+  deleteAllReadAdminNotifications
 } from '../controllers/adminNotificationController';
 
 const router = express.Router();
@@ -174,6 +176,20 @@ router.get('/notifications/unread-count', getUnreadNotificationCount);
  * @access  Private (Admin only)
  */
 router.patch('/notifications/:notificationId/read', markNotificationAsRead);
+
+/**
+ * @route   DELETE /api/admin/notifications/read
+ * @desc    Delete all read notifications for current admin
+ * @access  Private (Admin only)
+ */
+router.delete('/notifications/read', deleteAllReadAdminNotifications);
+
+/**
+ * @route   DELETE /api/admin/notifications/:notificationId
+ * @desc    Delete single notification
+ * @access  Private (Admin only)
+ */
+router.delete('/notifications/:notificationId', deleteAdminNotification);
 
 /**
  * @route   PATCH /api/admin/notifications/mark-all-read
