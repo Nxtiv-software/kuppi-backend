@@ -19,6 +19,12 @@ import {
   forceClosePoll,
   getSystemAnalytics
 } from '../controllers/adminController';
+import {
+  getAdminNotifications,
+  getUnreadNotificationCount,
+  markNotificationAsRead,
+  markAllNotificationsAsRead
+} from '../controllers/adminNotificationController';
 
 const router = express.Router();
 
@@ -145,5 +151,35 @@ router.patch('/polls/:pollId/status', updatePollStatus);
  * @access  Private (Admin only)
  */
 router.patch('/polls/:pollId/force-close', forceClosePoll);
+
+// ==================== NOTIFICATION MANAGEMENT ====================
+
+/**
+ * @route   GET /api/admin/notifications
+ * @desc    Get admin notifications with pagination and filters
+ * @access  Private (Admin only)
+ */
+router.get('/notifications', getAdminNotifications);
+
+/**
+ * @route   GET /api/admin/notifications/unread-count
+ * @desc    Get unread admin notification count
+ * @access  Private (Admin only)
+ */
+router.get('/notifications/unread-count', getUnreadNotificationCount);
+
+/**
+ * @route   PATCH /api/admin/notifications/:notificationId/read
+ * @desc    Mark single notification as read
+ * @access  Private (Admin only)
+ */
+router.patch('/notifications/:notificationId/read', markNotificationAsRead);
+
+/**
+ * @route   PATCH /api/admin/notifications/mark-all-read
+ * @desc    Mark all unread notifications as read
+ * @access  Private (Admin only)
+ */
+router.patch('/notifications/mark-all-read', markAllNotificationsAsRead);
 
 export default router;
