@@ -1,0 +1,28 @@
+export type CommunicationAudience = 'all' | 'students' | 'tutors' | 'admins' | 'custom';
+export type CommunicationChannel = 'email';
+export type CommunicationCampaignStatus = 'draft' | 'sending' | 'sent' | 'failed';
+export type ReminderStatus = 'active' | 'paused' | 'completed';
+export type ReminderScheduleType = 'one_time' | 'recurring';
+
+export interface CreateCommunicationCampaignRequest {
+  title: string;
+  message: string;
+  audience: CommunicationAudience;
+  channel?: CommunicationChannel;
+  actionUrl?: string;
+  customRecipientEmails?: string[];
+}
+
+export interface CreateReminderRuleRequest {
+  name: string;
+  description: string;
+  triggerLabel: string;
+  audience: CommunicationAudience;
+  channel?: CommunicationChannel;
+  scheduleType?: ReminderScheduleType;
+  scheduledFor?: string;
+  repeatEveryMinutes?: number;
+  templateSubject?: string;
+  templateMessage?: string;
+  actionUrl?: string;
+}
