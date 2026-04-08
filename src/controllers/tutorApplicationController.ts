@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { clerkClient } from '@clerk/clerk-sdk-node';
 import TutorApplication from '../models/TutorApplication';
 import User from '../models/user';
+import { createNotificationForAllAdmins } from '../services/adminNotificationService';
 
 const resolveEmailFromClerk = async (clerkId: string): Promise<string | null> => {
   try {
@@ -139,6 +140,25 @@ export const submitTutorApplication = async (req: Request, res: Response) => {
       status: 'pending',
     });
 
+    try {
+      await createNotificationForAllAdmins({
+        title: 'New Tutor Application Submitted',
+        message: `${fullName} submitted a tutor application for review.`,
+        category: 'tutor_application',
+        severity: 'info',
+        sourceType: 'TutorApplication',
+        sourceId: application._id.toString(),
+        actionUrl: `/admin?tab=tutor-applications&applicationId=${application._id}`,
+        metadata: {
+          applicantName: fullName,
+          applicationId: application._id.toString(),
+          status: application.status
+        }
+      });
+    } catch (notificationError) {
+      console.error('⚠️ Failed to create admin notification for tutor application submission:', notificationError);
+    }
+
     console.log(`✅ New tutor application submitted by ${fullName} (${clerkId || 'unauthenticated'})`);
 
     res.status(201).json({
@@ -258,6 +278,7 @@ export const getAllApplications = async (req: Request, res: Response) => {
 export const approveApplication = async (req: Request, res: Response) => {
   try {
     const { applicationId } = req.params;
+    const actorAdminId = (req as any).auth?.userId;
 
     const application = await TutorApplication.findById(applicationId);
     if (!application) {
@@ -286,6 +307,28 @@ export const approveApplication = async (req: Request, res: Response) => {
       }
     }
 
+    try {
+      await createNotificationForAllAdmins(
+        {
+          title: 'Tutor Application Approved',
+          message: `${application.fullName}'s tutor application has been approved.`,
+          category: 'tutor_application',
+          severity: 'info',
+          sourceType: 'TutorApplication',
+          sourceId: application._id.toString(),
+          actionUrl: `/admin?tab=tutor-applications&applicationId=${application._id}`,
+          metadata: {
+            applicantName: application.fullName,
+            applicationId: application._id.toString(),
+            status: application.status
+          }
+        },
+        { excludeAdminId: actorAdminId }
+      );
+    } catch (notificationError) {
+      console.error('⚠️ Failed to create admin notification for approved tutor application:', notificationError);
+    }
+
     res.json({
       success: true,
       message: 'Application approved. User role updated to tutor.',
@@ -309,6 +352,7 @@ export const rejectApplication = async (req: Request, res: Response) => {
   try {
     const { applicationId } = req.params;
     const { adminNote } = req.body;
+    const actorAdminId = (req as any).auth?.userId;
 
     const application = await TutorApplication.findById(applicationId);
     if (!application) {
@@ -318,6 +362,29 @@ export const rejectApplication = async (req: Request, res: Response) => {
     application.status = 'rejected';
     if (adminNote) application.adminNote = adminNote;
     await application.save();
+
+    try {
+      await createNotificationForAllAdmins(
+        {
+          title: 'Tutor Application Rejected',
+          message: `${application.fullName}'s tutor application has been rejected.`,
+          category: 'tutor_application',
+          severity: 'warning',
+          sourceType: 'TutorApplication',
+          sourceId: application._id.toString(),
+          actionUrl: `/admin?tab=tutor-applications&applicationId=${application._id}`,
+          metadata: {
+            applicantName: application.fullName,
+            applicationId: application._id.toString(),
+            status: application.status,
+            adminNote: application.adminNote || null
+          }
+        },
+        { excludeAdminId: actorAdminId }
+      );
+    } catch (notificationError) {
+      console.error('⚠️ Failed to create admin notification for rejected tutor application:', notificationError);
+    }
 
     res.json({
       success: true,
