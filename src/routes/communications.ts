@@ -4,7 +4,9 @@ import { isAdmin } from '../middlewares/adminAuth';
 import {
   createReminder,
   deleteCampaign,
+  deleteReminder,
   getCampaigns,
+  getReminderAnalyticsSummary,
   getReminderLogs,
   getReminders,
   runReminderNow,
@@ -23,7 +25,9 @@ router.post('/campaigns', sendCampaign);
 router.delete('/campaigns/:campaignId', deleteCampaign);
 
 router.get('/reminders', getReminders);
+router.get('/reminders/analytics/summary', getReminderAnalyticsSummary);
 router.post('/reminders', createReminder);
+router.delete('/reminders/:reminderId', deleteReminder);
 router.patch('/reminders/:reminderId', updateReminder);
 router.patch('/reminders/:reminderId/toggle', toggleReminderStatus);
 router.post('/reminders/:reminderId/run', runReminderNow);
