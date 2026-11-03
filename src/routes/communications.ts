@@ -1,0 +1,36 @@
+import express from 'express';
+import { requireAuth } from '../middlewares/clerkAuth';
+import { isAdmin } from '../middlewares/adminAuth';
+import {
+  createReminder,
+  deleteCampaign,
+  deleteReminder,
+  getCampaigns,
+  getReminderAnalyticsSummary,
+  getReminderLogs,
+  getReminders,
+  runReminderNow,
+  sendCampaign,
+  toggleReminderStatus,
+  updateReminder
+} from '../controllers/communicationController';
+
+const router = express.Router();
+
+router.use(requireAuth);
+router.use(isAdmin);
+
+router.get('/campaigns', getCampaigns);
+router.post('/campaigns', sendCampaign);
+router.delete('/campaigns/:campaignId', deleteCampaign);
+
+router.get('/reminders', getReminders);
+router.get('/reminders/analytics/summary', getReminderAnalyticsSummary);
+router.post('/reminders', createReminder);
+router.delete('/reminders/:reminderId', deleteReminder);
+router.patch('/reminders/:reminderId', updateReminder);
+router.patch('/reminders/:reminderId/toggle', toggleReminderStatus);
+router.post('/reminders/:reminderId/run', runReminderNow);
+router.get('/reminders/:reminderId/logs', getReminderLogs);
+
+export default router;

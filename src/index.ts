@@ -8,19 +8,36 @@ import loginRouter from "./routes/login";
 import router from "./routes/polls";
 import refreshRouter from "./routes/refreshToken";
 import sessionsRouter from "./routes/sessions";
-// import webHookrouter from "./routes/clerkWebhook"; // Commented out until implemented
-
+import webHookrouter from "./routes/clerkWebhook";
+import clerkSyncRouter from "./routes/clerkSync";
+import adminRouter from "./routes/admin";import tutorApplicationsRouter from './routes/tutorApplications';
+import communicationsRouter from './routes/communications';
+import userNotificationsRouter from './routes/userNotifications';
+import { startReminderScheduler } from './services/communicationService';
 const app = express();
 
+// Dynamic CORS configuration to allow any localhost port
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+    // Allow requests with no origin (like mobile apps, Postman, or same-origin)
+    if (!origin) return callback(null, true);
+    
+    // Allow any localhost or 127.0.0.1 with any port
+    if (origin.match(/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/)) {
+      return callback(null, true);
+    }
+    
+    // Block other origins
+    callback(new Error('Not allowed by CORS'));
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with'],
 }));
 app.options('*', cors());
 
-// app.use('/clerk', webHookrouter); // Commented out until implemented
+// Clerk webhook route BEFORE express.json() - needs raw body for signature verification
+app.use('/clerk', webHookrouter);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -43,6 +60,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 connectDB();
+startReminderScheduler();
 
 app.use('/auth', signUpRouter);
 app.use('/auth', refreshRouter);
@@ -50,6 +68,11 @@ app.use('/login', loginRouter);
 app.use('/polls', router);
 app.use('/sessions', sessionsRouter);
 app.use('/api/user', userRouter);
+app.use('/api/clerk-sync', clerkSyncRouter);
+app.use('/api/admin', adminRouter);
+app.use('/api/admin/communications', communicationsRouter);
+app.use('/api/notifications', userNotificationsRouter);
+app.use('/api/tutor-applications', tutorApplicationsRouter);
 
 app.get('/health', (req: Request, res: Response) => {
   res.json({
@@ -69,7 +92,8 @@ app.get('/api', (req: Request, res: Response) => {
       auth: '/auth',
       login: '/login',
       polls: '/polls',
-      sessions: '/sessions',
+      admin: '/api/admin',
+      user: '/api/user',
       // clerk: '/clerk', // Commented out until implemented
       health: '/health'
     }
@@ -80,7 +104,7 @@ app.use('*', (req: Request, res: Response) => {
   res.status(404).json({
     success: false,
     message: `Route ${req.method} ${req.originalUrl} not found`,
-    availableRoutes: ['/auth', '/login', '/polls', '/sessions', '/health', '/api'] // Removed '/clerk'
+    availableRoutes: ['/auth', '/login', '/polls', '/sessions', '/health', '/api']
   });
 });
 

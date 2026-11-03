@@ -10,12 +10,16 @@ export interface IPoll extends Document {
   maxStudents: number;
   creator: mongoose.Types.ObjectId | string; // Allow both ObjectId and string
   votes: mongoose.Types.ObjectId[] | string[];
-  status: 'active' | 'completed' | 'scheduled' | 'accepted';
+  status: 'active' | 'completed' | 'scheduled' | 'accepted' | 'pending' | 'rejected' | 'expired';
   targetVotes: number;
   scheduledDate?: Date;
   tutor?: mongoose.Types.ObjectId;
   acceptedBy?: mongoose.Types.ObjectId | string; // Tutor who accepted the request - allow both types
   declinedBy?: (mongoose.Types.ObjectId | string)[]; // Tutors who declined the request
+  rejectedBy?: mongoose.Types.ObjectId | string; // Admin who rejected the poll
+  rejectionReason?: string; // Reason for rejection
+  rejectedAt?: Date; // When the poll was rejected
+  closedAt?: Date; // When the poll was force-closed
   sessionId?: mongoose.Types.ObjectId; // Reference to created session
   createdAt: Date;
   updatedAt: Date;
@@ -88,7 +92,7 @@ const PollSchema: Schema = new Schema({
   }],
   status: {
     type: String,
-    enum: ['active', 'completed', 'scheduled', 'accepted'],
+    enum: ['active', 'completed', 'scheduled', 'accepted', 'pending', 'rejected', 'expired'],
     default: 'active'
   },
   targetVotes: {
@@ -110,6 +114,23 @@ const PollSchema: Schema = new Schema({
     type: mongoose.Schema.Types.Mixed, // Allow both ObjectId and String - tutors who declined
     ref: 'User'
   }],
+  rejectedBy: {
+    type: mongoose.Schema.Types.Mixed,
+    ref: 'User',
+    required: false
+  },
+  rejectionReason: {
+    type: String,
+    required: false
+  },
+  rejectedAt: {
+    type: Date,
+    required: false
+  },
+  closedAt: {
+    type: Date,
+    required: false
+  },
   sessionId: {
     type: Schema.Types.ObjectId,
     ref: 'Session'
@@ -137,29 +158,48 @@ PollSchema.methods.checkScheduling = function(this: IPoll) {
   return false;
 };
 
-// Static method to get trending polls (7 or more votes)
+// Static method to get trending polls (70% or more votes relative to maxStudents)
 PollSchema.statics.getTrendingPolls = function(this: mongoose.Model<IPoll>) {
   return this.aggregate([
     {
       $match: {
         status: 'active',
-        $expr: { $gte: [{ $size: '$votes' }, 7] }
+        maxStudents: { $gt: 0 } // Ensure maxStudents is greater than 0 to avoid division by zero
+      }
+    },
+    {
+      $addFields: {
+        voteCount: { $size: { $ifNull: ['$votes', []] } }, // Handle null votes array
+        votePercentage: {
+          $cond: {
+            if: { $and: [
+              { $gt: ['$maxStudents', 0] },
+              { $isArray: '$votes' }
+            ]},
+            then: {
+              $multiply: [
+                { $divide: [{ $size: '$votes' }, '$maxStudents'] },
+                100
+              ]
+            },
+            else: 0
+          }
+        }
+      }
+    },
+    {
+      $match: {
+        votePercentage: { $gte: 70 } // 70% or more votes
       }
     },
     {
       $lookup: {
         from: 'users',
-        let: { creatorId: '$creator' },
+        let: { creatorId: { $toString: '$creator' } },
         pipeline: [
           {
             $match: {
-              $expr: {
-                $cond: {
-                  if: { $eq: [{ $type: '$$creatorId' }, 'objectId'] },
-                  then: { $eq: ['$_id', '$$creatorId'] },
-                  else: { $eq: ['$_id', { $toObjectId: '$$creatorId' }] }
-                }
-              }
+              $expr: { $eq: [{ $toString: '$_id' }, '$$creatorId'] }
             }
           },
           { $project: { name: 1, email: 1 } }
@@ -169,7 +209,6 @@ PollSchema.statics.getTrendingPolls = function(this: mongoose.Model<IPoll>) {
     },
     {
       $addFields: {
-        voteCount: { $size: '$votes' },
         creator: {
           $cond: {
             if: { $gt: [{ $size: '$creatorInfo' }, 0] },

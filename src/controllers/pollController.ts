@@ -4,6 +4,7 @@ import { AuthRequest } from '../middlewares/auth';
 import mongoose from 'mongoose';
 import User from '../models/user';
 import { userService } from '../services/userService';
+import { sendPollCreatedEmail, sendPollThresholdEmail } from '../services/emailService';
 
 // Interface for poll statistics
 interface PollStats {
@@ -249,8 +250,32 @@ export class PollController {
       const votePercentage = (poll.votes.length / poll.targetVotes) * 100;
       console.log('📊 Vote percentage:', votePercentage.toFixed(1) + '%');
       
+      // Check if poll just reached 50% threshold
+      const previousVoteCount = poll.votes.length - 1;
+      const previousPercentage = (previousVoteCount / poll.targetVotes) * 100;
+      const justReachedThreshold = previousPercentage < 50 && votePercentage >= 50;
+      
       if (votePercentage >= 50) {
         console.log('🎯 Poll reached 50%+ votes - now eligible for session requests');
+        
+        // 📧 Send email to tutors only when poll JUST reached threshold
+        if (justReachedThreshold) {
+          console.log('📧 Sending threshold email to tutors...');
+          sendPollThresholdEmail({
+            title: poll.title,
+            subject: poll.subject,
+            chapter: poll.chapter,
+            description: poll.description,
+            voteCount: poll.votes.length,
+            targetVotes: poll.targetVotes,
+            preferredDate: poll.preferredDate,
+            timeSlot: poll.timeSlot,
+            pollId: (poll._id as mongoose.Types.ObjectId).toString()
+          }).catch(err => {
+            console.error('Failed to send poll threshold email:', err);
+            // Don't fail the request if email fails
+          });
+        }
       }
       
       await poll.save();
@@ -290,7 +315,13 @@ export class PollController {
       // Use Clerk authentication - get userId from req.auth
       const userId = (req as any).auth?.userId || req.user?.id || req.user?._id;
 
+      console.log('🗑️ ===== REMOVE VOTE DEBUG =====');
+      console.log('🗑️ Poll ID:', pollId);
+      console.log('🗑️ User ID:', userId);
+      console.log('🗑️ User ID type:', typeof userId);
+
       if (!mongoose.Types.ObjectId.isValid(pollId)) {
+        console.log('❌ Invalid poll ID');
         res.status(400).json({
           success: false,
           message: 'Invalid poll ID'
@@ -298,11 +329,12 @@ export class PollController {
         return;
       }
 
-      // Validate userId is a valid ObjectId for vote removal
-      if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+      // Validate userId exists
+      if (!userId) {
+        console.log('❌ No user ID provided');
         res.status(400).json({
           success: false,
-          message: 'Invalid user ID for vote removal'
+          message: 'User ID is required for vote removal'
         });
         return;
       }
@@ -310,6 +342,7 @@ export class PollController {
       const poll = await Poll.findById(pollId);
       
       if (!poll) {
+        console.log('❌ Poll not found');
         res.status(404).json({
           success: false,
           message: 'Poll not found'
@@ -317,7 +350,12 @@ export class PollController {
         return;
       }
 
+      console.log('✅ Poll found:', poll.title);
+      console.log('📊 Current votes:', poll.votes);
+      console.log('📊 Poll status:', poll.status);
+
       if (poll.status !== 'active' && poll.status !== 'scheduled') {
+        console.log('❌ Poll not active or scheduled, status:', poll.status);
         res.status(400).json({
           success: false,
           message: 'Cannot remove vote from this poll'
@@ -325,10 +363,22 @@ export class PollController {
         return;
       }
 
-      // Handle ObjectId comparison properly
-      const userObjectId = new mongoose.Types.ObjectId(userId);
-      const voteIndex = poll.votes.findIndex(voteId => voteId.toString() === userObjectId.toString());
+      // Handle both ObjectId and string user IDs for vote comparison
+      const voteIndex = poll.votes.findIndex(voteId => {
+        const voteIdString = voteId.toString();
+        const userIdString = userId.toString();
+        console.log(`🔍 Comparing vote: "${voteIdString}" with user: "${userIdString}"`);
+        // Handle both ObjectId and string comparisons
+        if (mongoose.Types.ObjectId.isValid(userId) && mongoose.Types.ObjectId.isValid(voteId)) {
+          return voteId.toString() === new mongoose.Types.ObjectId(userId).toString();
+        }
+        // For string user IDs (like Clerk IDs), compare directly
+        return voteIdString === userIdString;
+      });
+
+      console.log('🔍 Vote index found:', voteIndex);
       if (voteIndex === -1) {
+        console.log('❌ User has not voted on this poll');
         res.status(400).json({
           success: false,
           message: 'You have not voted on this poll'
@@ -336,14 +386,19 @@ export class PollController {
         return;
       }
 
+      console.log('✅ Removing vote at index:', voteIndex);
       poll.votes.splice(voteIndex, 1);
+      console.log('✅ Vote removed. Remaining votes:', poll.votes.length);
       
       // If poll was scheduled but now has less than target votes, make it active again
       if ((poll.status as string) === 'scheduled' && poll.votes.length < poll.targetVotes) {
+        console.log('📊 Poll status changed from scheduled to active');
         poll.status = 'active';
       }
       
       await poll.save();
+      console.log('💾 Poll saved successfully');
+      console.log('🗑️ ===== REMOVE VOTE SUCCESS =====');
 
       res.json({
         success: true,
@@ -614,6 +669,20 @@ export class PollController {
         data: cleanPollResponse
       });
 
+      // 📧 Send email notification to all students
+      sendPollCreatedEmail({
+        title: savedPoll.title,
+        subject: savedPoll.subject,
+        chapter: savedPoll.chapter,
+        description: savedPoll.description,
+        preferredDate: savedPoll.preferredDate,
+        timeSlot: savedPoll.timeSlot,
+        creatorName: finalCreatorName
+      }).catch(err => {
+        console.error('Failed to send poll created email:', err);
+        // Don't fail the request if email fails
+      });
+
     } catch (error: any) {
       console.error('Error creating poll:', error);
       res.status(500).json({
@@ -629,11 +698,27 @@ export class PollController {
    */
   static async getAllPolls(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const { subject, status, date, page = 1, limit = 10 } = req.query;
+      const { subject, status, date, page = 1, limit = 10, includeScheduled = false } = req.query;
       // Use Clerk authentication - get userId from req.auth
       const userId = (req as any).auth?.userId || req.user?.id || req.user?._id;
       
-      let query: any = {};
+      // First, get all polls to identify trending ones (70%+ votes)
+      const allPolls = await Poll.find({ maxStudents: { $gt: 0 } }).select('_id votes maxStudents');
+      
+      // Find IDs of polls with 70%+ votes (trending polls) - these should be excluded
+      const trendingPollIds = allPolls
+        .filter(poll => {
+          if (!poll.maxStudents || poll.maxStudents === 0) return false;
+          const votePercentage = (poll.votes.length / poll.maxStudents) * 100;
+          return votePercentage >= 70;
+        })
+        .map(poll => poll._id);
+      
+      console.log(`📊 Found ${trendingPollIds.length} trending polls to exclude from filtered polls`);
+      
+      let query: any = {
+        _id: { $nin: trendingPollIds } // Exclude trending polls from regular polls
+      };
       
       if (subject && subject !== 'all') {
         query.subject = subject;
@@ -641,6 +726,11 @@ export class PollController {
       
       if (status && status !== 'all') {
         query.status = status;
+      } else {
+        // By default, exclude scheduled polls unless explicitly requested
+        if (!includeScheduled || includeScheduled === 'false') {
+          query.status = { $ne: 'scheduled' };
+        }
       }
       
       if (date && date !== 'all') {
@@ -677,10 +767,34 @@ export class PollController {
       // Get all unique user IDs from polls
       const userIds = new Set<string>();
       polls.forEach(poll => {
-        if (poll.creator) userIds.add(poll.creator.toString());
-        if (poll.createdBy) userIds.add(poll.createdBy);
-        if (poll.acceptedBy) userIds.add(poll.acceptedBy.toString());
-        poll.votes.forEach((vote: any) => userIds.add(vote.toString()));
+        // Safely convert creator to string
+        if (poll.creator) {
+          const creatorId = typeof poll.creator === 'object' && poll.creator !== null ? poll.creator.toString() : poll.creator;
+          if (creatorId && typeof creatorId === 'string' && creatorId !== '[object Object]') {
+            userIds.add(creatorId);
+          }
+        }
+        if (poll.createdBy && typeof poll.createdBy === 'string' && poll.createdBy !== '[object Object]') {
+          userIds.add(poll.createdBy);
+        }
+        
+        // Safely convert acceptedBy to string
+        if (poll.acceptedBy) {
+          const acceptedById = typeof poll.acceptedBy === 'object' && poll.acceptedBy !== null ? poll.acceptedBy.toString() : poll.acceptedBy;
+          if (acceptedById && typeof acceptedById === 'string' && acceptedById !== '[object Object]') {
+            userIds.add(acceptedById);
+          }
+        }
+        
+        // Safely convert votes to strings
+        poll.votes.forEach((vote: any) => {
+          if (vote !== null && vote !== undefined) {
+            const voteId = typeof vote === 'object' ? vote.toString() : vote;
+            if (voteId && typeof voteId === 'string' && voteId !== '[object Object]') {
+              userIds.add(voteId);
+            }
+          }
+        });
       });
 
       // Fetch user information for all users
@@ -781,10 +895,34 @@ export class PollController {
       // Get all unique user IDs from trending polls
       const userIds = new Set<string>();
       trendingPolls.forEach((poll: any) => {
-        if (poll.creator) userIds.add(poll.creator.toString());
-        if (poll.createdBy) userIds.add(poll.createdBy);
-        if (poll.acceptedBy) userIds.add(poll.acceptedBy.toString());
-        poll.votes.forEach((vote: any) => userIds.add(vote.toString()));
+        // Safely convert creator to string
+        if (poll.creator) {
+          const creatorId = typeof poll.creator === 'object' && poll.creator !== null ? poll.creator.toString() : poll.creator;
+          if (creatorId && typeof creatorId === 'string' && creatorId !== '[object Object]') {
+            userIds.add(creatorId);
+          }
+        }
+        if (poll.createdBy && typeof poll.createdBy === 'string' && poll.createdBy !== '[object Object]') {
+          userIds.add(poll.createdBy);
+        }
+        
+        // Safely convert acceptedBy to string
+        if (poll.acceptedBy) {
+          const acceptedById = typeof poll.acceptedBy === 'object' && poll.acceptedBy !== null ? poll.acceptedBy.toString() : poll.acceptedBy;
+          if (acceptedById && typeof acceptedById === 'string' && acceptedById !== '[object Object]') {
+            userIds.add(acceptedById);
+          }
+        }
+        
+        // Safely convert votes to strings
+        poll.votes.forEach((vote: any) => {
+          if (vote !== null && vote !== undefined) {
+            const voteId = typeof vote === 'object' ? vote.toString() : vote;
+            if (voteId && typeof voteId === 'string' && voteId !== '[object Object]') {
+              userIds.add(voteId);
+            }
+          }
+        });
       });
 
       // Fetch user information for all users
@@ -902,7 +1040,7 @@ export class PollController {
         return;
       }
 
-      const hasVoted = poll.votes.some((vote: any) => vote._id.toString() === userId);
+      const hasVoted = poll.votes.some((voteId: any) => voteId.toString() === userId.toString());
 
       res.json({
         success: true,

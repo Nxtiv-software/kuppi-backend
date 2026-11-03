@@ -21,6 +21,18 @@ class UserService {
    */
   async getUserInfo(userId: string): Promise<UserInfo | null> {
     try {
+      // Validate userId is a string and not an object
+      if (!userId || typeof userId !== 'string') {
+        console.error(`❌ Invalid userId type: ${typeof userId}, value:`, userId);
+        return null;
+      }
+
+      // Additional check for [object Object] string
+      if (userId === '[object Object]' || userId.includes('[object')) {
+        console.error(`❌ Received [object Object] as userId, skipping`);
+        return null;
+      }
+
       // Check cache first
       const cached = this.getUserFromCache(userId);
       if (cached) {
