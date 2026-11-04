@@ -66,10 +66,8 @@ const user = new mongoose.Schema({
     },
     // User preferences
     preferences: {
-        subjects: [{
-            type: String,
-            enum: ['combined-maths', 'physics', 'chemistry']
-        }],
+        // allow free-form subject tags (not limited to a fixed enum)
+        subjects: [{ type: String }],
         notifications: {
             email: { type: Boolean, default: true },
             push: { type: Boolean, default: true }
@@ -78,6 +76,62 @@ const user = new mongoose.Schema({
             type: String,
             enum: ['en', 'si'],
             default: 'en'
+        }
+    },
+    // Preferred contact method for all users (common setting)
+    preferredContactMethod: {
+        type: String,
+        enum: ['email', 'phone', 'none'],
+        default: 'email'
+    },
+    dashboardSettings: {
+        timezone: {
+            type: String,
+            default: 'Asia/Colombo'
+        },
+        language: {
+            type: String,
+            enum: ['en', 'si'],
+            default: 'en'
+        },
+        theme: {
+            type: String,
+            enum: ['light', 'dark', 'system'],
+            default: 'system'
+        },
+        notifications: {
+            email: { type: Boolean, default: true },
+            push: { type: Boolean, default: true },
+            reminders: { type: Boolean, default: true }
+        },
+        tutor: {
+            subjects: [{ type: String }],
+            availability: [{
+                day: { type: String, enum: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] },
+                start: { type: String },
+                end: { type: String }
+            }],
+            profileVisibility: {
+                type: String,
+                enum: ['public', 'private'],
+                default: 'public'
+            }
+            ,
+            // Optional session price (per hour) for tutors
+            sessionPrice: {
+                type: Number,
+                required: false,
+                default: 0
+            }
+        },
+        student: {
+            defaultReminderOffsetMinutes: {
+                type: Number,
+                default: 1440
+            }
+            ,
+            // Student learning goals as short text entries
+            learningGoals: [{ type: String }]
         }
     },
     // Statistics
@@ -166,6 +220,28 @@ user.statics.createMockUser = async function(mockData = {}) {
                 push: true
             },
             language: 'en'
+        },
+        dashboardSettings: {
+            timezone: 'Asia/Colombo',
+            language: 'en',
+            theme: 'system',
+            notifications: {
+                email: true,
+                push: true,
+                reminders: true
+            },
+            tutor: {
+                subjects: [],
+                availability: [],
+                profileVisibility: 'public'
+            ,
+                sessionPrice: 0
+            },
+            student: {
+                defaultReminderOffsetMinutes: 1440
+            ,
+                learningGoals: []
+            }
         },
         stats: {
             pollsCreated: 0,
