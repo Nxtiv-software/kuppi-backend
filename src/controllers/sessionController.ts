@@ -337,6 +337,47 @@ export const scheduleSession = async (req: Request, res: Response) => {
     const tutorName = tutorInfo?.name || tutorInfo?.firstName + ' ' + tutorInfo?.lastName || 'Tutor';
     const tutorEmail = tutorInfo?.email || 'tutor@kuppi.com';
 
+    // Validate against tutor availability if the tutor has set availability
+    try {
+      const tutorDoc = await User.findOne({ clerkId: tutorId }).lean();
+      const availability = tutorDoc?.dashboardSettings?.tutor?.availability || [];
+      if (Array.isArray(availability) && availability.length > 0) {
+        const requestedDate = new Date(date);
+        const weekdayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+        const requestedDay = weekdayNames[requestedDate.getDay()];
+
+        const parseMinutes = (t: string) => {
+          const parts = t.split(':').map(p => Number(p));
+          return (parts[0] || 0) * 60 + (parts[1] || 0);
+        };
+
+        const reqParts = (typeof time === 'string' ? time : '').split(':');
+        const reqMinutes = parseMinutes(reqParts.slice(0,2).join(':'));
+
+        const matched = availability.find((slot: any) => {
+          if (!slot || !slot.day) return false;
+          if (slot.day.toLowerCase() !== requestedDay) return false;
+          try {
+            const startMin = parseMinutes(slot.start || '00:00');
+            const endMin = parseMinutes(slot.end || '23:59');
+            return reqMinutes >= startMin && reqMinutes <= endMin;
+          } catch (e) {
+            return false;
+          }
+        });
+
+        if (!matched) {
+          return res.status(400).json({
+            success: false,
+            message: "Requested date/time is outside tutor's availability"
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Could not validate tutor availability:', err);
+      // proceed if availability check fails to avoid blocking scheduling
+    }
+
     console.log('Scheduling session for poll:', pollId);
     console.log('Tutor info:', { tutorId, tutorName, tutorEmail });
     console.log('Poll details:', {
@@ -2029,6 +2070,46 @@ export const scheduleTutorSession = async (req: Request, res: Response) => {
 
     // Check if this is an unlimited session
     const isUnlimitedSession = session.maxStudents >= 100;
+
+    // Validate against tutor availability if set
+    try {
+      const tutorDoc = await User.findOne({ clerkId: tutorId }).lean();
+      const availability = tutorDoc?.dashboardSettings?.tutor?.availability || [];
+      if (Array.isArray(availability) && availability.length > 0) {
+        const requestedDate = new Date(date);
+        const weekdayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+        const requestedDay = weekdayNames[requestedDate.getDay()];
+
+        const parseMinutes = (t: string) => {
+          const parts = t.split(':').map(p => Number(p));
+          return (parts[0] || 0) * 60 + (parts[1] || 0);
+        };
+
+        const reqParts = (typeof time === 'string' ? time : '').split(':');
+        const reqMinutes = parseMinutes(reqParts.slice(0,2).join(':'));
+
+        const matched = availability.find((slot: any) => {
+          if (!slot || !slot.day) return false;
+          if (slot.day.toLowerCase() !== requestedDay) return false;
+          try {
+            const startMin = parseMinutes(slot.start || '00:00');
+            const endMin = parseMinutes(slot.end || '23:59');
+            return reqMinutes >= startMin && reqMinutes <= endMin;
+          } catch (e) {
+            return false;
+          }
+        });
+
+        if (!matched) {
+          return res.status(400).json({
+            success: false,
+            message: "Requested date/time is outside your availability"
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('Could not validate tutor availability:', err);
+    }
 
     // Update session with schedule
     session.date = new Date(date);
