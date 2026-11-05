@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import User from '../models/user';
+import AppSettings from '../models/AppSettings';
 import { createNotificationForAllAdmins } from './adminNotificationService';
 
 // Initialize Resend client
@@ -17,6 +18,18 @@ export interface EmailOptions {
 export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
   try {
     const { to, subject, html } = options;
+
+    // Check global app settings: if system emails are disabled, skip sending
+    try {
+      const appSettings = await AppSettings.findOne({ key: 'default' }).lean();
+      if (appSettings && appSettings.notifications && appSettings.notifications.systemEmailEnabled === false) {
+        console.log('ℹ️ System emails are disabled in AppSettings. Skipping sendEmail for subject:', subject);
+        return false;
+      }
+    } catch (err) {
+      console.warn('⚠️ Could not read AppSettings before sending email:', err);
+      // continue to attempt send if settings can't be read
+    }
 
     // Convert single email to array for consistent handling
     const recipients = Array.isArray(to) ? to : [to];
