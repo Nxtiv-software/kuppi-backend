@@ -13,7 +13,9 @@ import clerkSyncRouter from "./routes/clerkSync";
 import adminRouter from "./routes/admin";import tutorApplicationsRouter from './routes/tutorApplications';
 import communicationsRouter from './routes/communications';
 import userNotificationsRouter from './routes/userNotifications';
+import settingsRouter from './routes/settings';
 import { startReminderScheduler } from './services/communicationService';
+import { maintenanceModeGuard } from './middlewares/maintenanceMode';
 const app = express();
 
 // Dynamic CORS configuration to allow any localhost port
@@ -41,6 +43,7 @@ app.use('/clerk', webHookrouter);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(maintenanceModeGuard);
 
 app.use((req: Request, res: Response, next: NextFunction) => {
   // Reduced logging for frequent API calls
@@ -73,6 +76,7 @@ app.use('/api/admin', adminRouter);
 app.use('/api/admin/communications', communicationsRouter);
 app.use('/api/notifications', userNotificationsRouter);
 app.use('/api/tutor-applications', tutorApplicationsRouter);
+app.use('/api/settings', settingsRouter);
 
 app.get('/health', (req: Request, res: Response) => {
   res.json({
